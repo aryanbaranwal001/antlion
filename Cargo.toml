@@ -1,0 +1,6 @@
+[workspace]
+members = ["tool", "contracts/counter/rust", "contracts/adder/rust"]
+resolver = "2"
+
+[workspace.dependencies]
+soroban-sdk = "26"

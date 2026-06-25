@@ -1,0 +1,11 @@
+[[contract]]
+name = "counter"
+solidity = "contracts/counter/counter.sol"
+rust = "contracts/counter/rust"
+target = "soroban"
+
+[[contract]]
+name = "adder"
+solidity = "contracts/adder/adder.sol"
+rust = "contracts/adder/rust"
+target = "soroban"
