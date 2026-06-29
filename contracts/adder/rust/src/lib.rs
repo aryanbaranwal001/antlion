@@ -1,14 +1,12 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+#![no_std]
+use soroban_sdk::{contract, contractimpl, Env};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[contract]
+pub struct AdderContract;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+#[contractimpl]
+impl AdderContract {
+    pub fn add(_env: Env, a: u32, b: u32) -> u32 {
+        a + b
     }
 }
