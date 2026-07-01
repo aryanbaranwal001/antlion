@@ -8,13 +8,13 @@ fn main() {
 
     // Rust contract -> wasm
     let status = Command::new("cargo")
-        .args(["build", "-p", &name, "--target", "wasm32v1-none"])
+        .args(["build", "-p", &name, "--release", "--target", "wasm32v1-none"])
         .status()
         .expect("failed to run cargo");
     assert!(status.success(), "cargo build failed");
 
     fs::copy(
-        format!("target/wasm32v1-none/debug/{name}.wasm"),
+        format!("target/wasm32v1-none/release/{name}.wasm"),
         format!("{out_dir}/rust.wasm"),
     )
     .expect("failed to copy rust wasm");
