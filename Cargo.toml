@@ -1,5 +1,5 @@
 [workspace]
-members = ["antlion", "contracts/counter/rust", "contracts/adder/rust"]
+members = ["antlion", "contracts/counter/sdk", "contracts/adder/sdk"]
 resolver = "2"
 
 [workspace.dependencies]

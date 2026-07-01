@@ -15,7 +15,7 @@ fn main() {
 
     fs::copy(
         format!("target/wasm32v1-none/release/{name}.wasm"),
-        format!("{out_dir}/rust.wasm"),
+        format!("{out_dir}/sdk.wasm"),
     )
     .expect("failed to copy rust wasm");
 
@@ -27,7 +27,7 @@ fn main() {
             "soroban",
             "--output",
             &out_dir,
-            &format!("contracts/{name}/{name}.sol"),
+            &format!("contracts/{name}/solang/{name}.sol"),
         ])
         .status()
         .expect("failed to run solang");
