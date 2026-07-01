@@ -37,10 +37,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "antlion"
-version = "0.1.0"
-
-[[package]]
 name = "ark-bls12-381"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -691,6 +687,10 @@ dependencies = [
  "rand_core",
  "subtle",
 ]
+
+[[package]]
+name = "harness"
+version = "0.1.0"
 
 [[package]]
 name = "hash32"
