@@ -1,5 +1,5 @@
 pub fn report(name: &str, sdk: &[u8], solang: &[u8]) {
-    println!("== {name}: section byte breakdown ==");
+    super::banner(&format!("{name}: section byte breakdown"));
     println!(
         "  {:<24} {:>7} {:>7} {:>7}",
         "section", "sdk", "solang", "diff"

@@ -28,3 +28,8 @@ fn signed(d: i64) -> String {
         d.to_string()
     }
 }
+
+fn banner(title: &str) {
+    let rule = "━".repeat(title.chars().count());
+    println!("  {rule}\n  {title}\n  {rule}");
+}
