@@ -6,7 +6,7 @@ mod compare;
 fn main() {
     let mut args = env::args().skip(1);
 
-    let usage = "usage: antlion --build | --compare <contract-name>";
+    let usage = "usage: --build | --compare <contract-name>";
     let cmd = args.next().expect(usage);
     let name = args.next().expect(usage);
 

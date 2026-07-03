@@ -1,5 +1,6 @@
 use std::{fs, path::Path, process};
 
+mod section;
 mod size;
 
 pub fn run(name: &str) {
@@ -17,6 +18,7 @@ pub fn run(name: &str) {
     let solang = fs::read(&solang_path).expect("read solang.wasm");
 
     size::report(name, &sdk, &solang);
+    section::report(name, &sdk, &solang);
 }
 
 fn signed(d: i64) -> String {
