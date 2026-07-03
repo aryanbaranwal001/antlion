@@ -1,10 +1,12 @@
 // total size
 pub fn report(name: &str, sdk: &[u8], solang: &[u8]) {
     println!("== {name}: total size ==");
-    println!("  solang {:>6} bytes", solang.len());
-    println!("  sdk    {:>6} bytes", sdk.len());
+
+    println!("  {:<7} {:<7} {:<7}", "sdk", "solang", "diff");
     println!(
-        "  diff   {:>6} (solang - sdk)\n",
-        super::signed(solang.len() as i64 - sdk.len() as i64)
+        "  {:<7} {:<7} {:<7}",
+        sdk.len(),
+        solang.len(),
+        super::signed(sdk.len() as i64 - solang.len() as i64)
     );
 }
