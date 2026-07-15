@@ -2,6 +2,7 @@ use std::{fs, path::Path, process};
 
 mod section;
 mod size;
+mod wasm;
 
 pub fn run(name: &str) {
     let sdk_path = format!("out/{name}/sdk.wasm");

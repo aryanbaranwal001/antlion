@@ -1,5 +1,7 @@
+use super::wasm::read_leb128;
+
 pub fn report(name: &str, sdk: &[u8], solang: &[u8]) {
-    super::banner(&format!("{name}: section byte breakdown"));
+    super::banner(&format!("{name}: aggregate section byte breakdown"));
     println!(
         "  {:<24} {:>7} {:>7} {:>7}",
         "section", "sdk", "solang", "diff"
@@ -66,8 +68,9 @@ fn aggregate(secs: &[Section]) -> Vec<(String, usize)> {
 }
 
 fn section_order(a: &[(String, usize)], b: &[(String, usize)]) -> Vec<String> {
-    let mut order: Vec<String> = a.iter().map(|(n, _)| n.clone()).collect();
-    for (n, _) in b {
+    let (base, extra) = if a.len() >= b.len() { (a, b) } else { (b, a) };
+    let mut order: Vec<String> = base.iter().map(|(n, _)| n.clone()).collect();
+    for (n, _) in extra {
         if !order.contains(n) {
             order.push(n.clone());
         }
@@ -96,23 +99,4 @@ fn section_name(id: u8) -> &'static str {
         12 => "data_count",
         _ => "unknown",
     }
-}
-
-// u32: actual number
-// usize: bytes containing that number
-fn read_leb128(bytes: &[u8]) -> (u32, usize) {
-    let mut result = 0u32;
-    let mut shift = 0;
-    let mut i = 0;
-
-    loop {
-        let byte = bytes[i];
-        result |= ((byte & 0x7f) as u32) << shift;
-        i += 1;
-        if byte & 0x80 == 0 {
-            break;
-        }
-        shift += 7;
-    }
-    (result, i)
 }
