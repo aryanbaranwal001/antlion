@@ -3,7 +3,7 @@ use super::wasm::read_leb128;
 pub fn report(sdk: &[u8], solang: &[u8]) {
     super::banner("aggregate section byte breakdown");
     println!(
-        "  {:<24} {:>7} {:>7} {:>7}",
+        "{:<24} {:>7} {:>7} {:>7}",
         "section", "sdk", "solang", "diff"
     );
 
@@ -14,7 +14,7 @@ pub fn report(sdk: &[u8], solang: &[u8]) {
         let a = size_of(&sdk_secs, &name);
         let b = size_of(&solang_secs, &name);
         println!(
-            "  {:<24} {:>7} {:>7} {:>7}",
+            "{:<24} {:>7} {:>7} {:>7}",
             name,
             a,
             b,

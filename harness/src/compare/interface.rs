@@ -3,12 +3,12 @@ use super::spec::{self, Contract};
 
 pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("contract interface");
-    println!("  {:<40} {:<40}", "sdk", "solang");
+    println!("{:<40} {:<40}", "sdk", "solang\n");
 
     for fname in fn_names(sdk, solang) {
         let s = sig_for(sdk, &fname);
         let l = sig_for(solang, &fname);
-        println!("  {s:<40} {l:<40}");
+        println!("{s:<40} {l:<40}");
     }
     println!();
 }

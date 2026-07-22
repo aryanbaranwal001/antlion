@@ -14,32 +14,32 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     super::banner("runtime cost per call");
 
     if sdk.interface.funcs.is_empty() {
-        println!("  no contract spec found for `{name}` — skipping runtime cost");
+        println!("no contract spec found for `{name}` — skipping runtime cost");
         println!();
         return;
     }
 
     for f in &sdk.interface.funcs {
         let Some(args) = spec::synth_args(&f.inputs) else {
-            println!("  {} — unsupported arg types, skipping", spec::sig(f));
+            println!("{} — unsupported arg types, skipping", spec::sig(f));
             continue;
         };
 
-        println!("  {}\n", spec::sig(f));
+        println!("{}\n", spec::sig(f));
 
         let s = measure(sdk.wasm, &f.name, &args);
         let l = measure(solang.wasm, &f.name, &args);
 
         if let Err(e) = &s {
-            println!("  sdk invoke failed: {e:?}");
+            println!("sdk invoke failed: {e:?}");
         }
         if let Err(e) = &l {
-            println!("  solang invoke failed: {e:?}");
+            println!("solang invoke failed: {e:?}");
         }
 
         if let (Ok(s), Ok(l)) = (&s, &l) {
             println!(
-                "  {:<10} {:>12} {:>12} {:>12}",
+                "{:<10} {:>12} {:>12} {:>12}",
                 "metric", "sdk", "solang", "diff"
             );
             metric_row("cpu insns", s.cpu, l.cpu);
@@ -76,7 +76,7 @@ fn measure(wasm: &[u8], func: &str, args: &[Val]) -> Result<Cost, HostError> {
 
 fn metric_row(label: &str, sdk: u64, solang: u64) {
     println!(
-        "  {:<10} {:>12} {:>12} {:>12}",
+        "{:<10} {:>12} {:>12} {:>12}",
         label,
         sdk,
         solang,

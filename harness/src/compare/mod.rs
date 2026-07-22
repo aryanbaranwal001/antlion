@@ -70,7 +70,7 @@ fn banner(text: &str) {
     let left = "━".repeat(pad / 2);
     let right = "━".repeat(pad - pad / 2);
 
-    println!("  {left}{label}{right}\n");
+    println!("{left}{label}{right}\n");
 }
 
 fn title(name: &str) {
@@ -82,7 +82,7 @@ fn title(name: &str) {
     let left = " ".repeat(pad / 2);
     let right = " ".repeat(pad - pad / 2);
 
-    println!("  ╔{line}╗");
-    println!("  ║{left}{name}{right}║");
-    println!("  ╚{line}╝\n");
+    println!("╔{line}╗");
+    println!("║{left}{name}{right}║");
+    println!("╚{line}╝\n");
 }
