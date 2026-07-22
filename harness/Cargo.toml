@@ -9,3 +9,4 @@ name = "antlion"
 path = "src/main.rs"
 
 [dependencies]
+soroban-env-host = { version = "27", features = ["testutils"] }

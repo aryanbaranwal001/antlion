@@ -1,25 +1,58 @@
-use std::{fs, path::Path, process};
+use std::{fs, path::Path};
 
+mod cost;
+mod interface;
 mod section;
 mod size;
+mod spec;
 mod wasm;
 
-pub fn run(name: &str) {
+use spec::Contract;
+
+const SECTIONS: [&str; 4] = ["size", "bytes", "interface", "cost"];
+const WIDTH: usize = 60;
+
+pub fn run(name: &str, sections: &[String]) {
     let sdk_path = format!("out/{name}/sdk.wasm");
     let solang_path = format!("out/{name}/solang.wasm");
 
     if !Path::new(&sdk_path).exists() || !Path::new(&solang_path).exists() {
-        eprintln!("error: built wasm for `{name}` not found in out/{name}/");
-        eprintln!("       expected both {sdk_path} and {solang_path}");
-        eprintln!("       build them first: cargo run -- --build {name}");
-        process::exit(1);
+        panic!("no build for `{name}` in out/{name}/ — run `cargo run -- --build {name}` first");
     }
 
-    let sdk = fs::read(&sdk_path).expect("read sdk.wasm");
-    let solang = fs::read(&solang_path).expect("read solang.wasm");
+    let sdk_wasm = fs::read(&sdk_path).expect("failed to read sdk.wasm");
+    let solang_wasm = fs::read(&solang_path).expect("failed to read solang.wasm");
 
-    size::report(name, &sdk, &solang);
-    section::report(name, &sdk, &solang);
+    let sdk = Contract {
+        wasm: &sdk_wasm,
+        interface: spec::parse(&sdk_wasm),
+    };
+    let solang = Contract {
+        wasm: &solang_wasm,
+        interface: spec::parse(&solang_wasm),
+    };
+
+    title(name);
+
+    let selected: Vec<&str> = if sections.is_empty() || sections.iter().any(|s| s == "all") {
+        SECTIONS.to_vec()
+    } else {
+        sections.iter().map(String::as_str).collect()
+    };
+
+    for s in selected {
+        match s {
+            "size" => size::report(sdk.wasm, solang.wasm),
+            "bytes" => section::report(sdk.wasm, solang.wasm),
+            "interface" => interface::report(&sdk, &solang),
+            "cost" => cost::report(name, &sdk, &solang),
+
+            other => panic!(
+                "unknown section `{other}` — pick from: {}, all",
+                SECTIONS.join(", ")
+            ),
+        }
+    }
 }
 
 fn signed(d: i64) -> String {
@@ -30,7 +63,26 @@ fn signed(d: i64) -> String {
     }
 }
 
-fn banner(title: &str) {
-    let rule = "━".repeat(title.chars().count());
-    println!("  {rule}\n  {title}\n  {rule}");
+fn banner(text: &str) {
+    let label = format!("  {}  ", text.to_uppercase());
+    let pad = WIDTH.saturating_sub(label.chars().count());
+
+    let left = "━".repeat(pad / 2);
+    let right = "━".repeat(pad - pad / 2);
+
+    println!("  {left}{label}{right}\n");
+}
+
+fn title(name: &str) {
+    let inner = WIDTH - 2;
+    let line = "═".repeat(inner);
+    let name = name.to_uppercase();
+    let pad = inner.saturating_sub(name.chars().count());
+
+    let left = " ".repeat(pad / 2);
+    let right = " ".repeat(pad - pad / 2);
+
+    println!("  ╔{line}╗");
+    println!("  ║{left}{name}{right}║");
+    println!("  ╚{line}╝\n");
 }

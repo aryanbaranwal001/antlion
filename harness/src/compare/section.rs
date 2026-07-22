@@ -1,7 +1,7 @@
 use super::wasm::read_leb128;
 
-pub fn report(name: &str, sdk: &[u8], solang: &[u8]) {
-    super::banner(&format!("{name}: aggregate section byte breakdown"));
+pub fn report(sdk: &[u8], solang: &[u8]) {
+    super::banner("aggregate section byte breakdown");
     println!(
         "  {:<24} {:>7} {:>7} {:>7}",
         "section", "sdk", "solang", "diff"
@@ -21,6 +21,7 @@ pub fn report(name: &str, sdk: &[u8], solang: &[u8]) {
             super::signed(a as i64 - b as i64)
         );
     }
+    println!();
 }
 
 struct Section {
