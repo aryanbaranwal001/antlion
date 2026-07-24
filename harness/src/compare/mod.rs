@@ -1,7 +1,9 @@
 use std::{fs, path::Path};
 
 mod cost;
+mod imports;
 mod interface;
+mod names;
 mod section;
 mod size;
 mod spec;
@@ -9,7 +11,7 @@ mod wasm;
 
 use spec::Contract;
 
-const SECTIONS: [&str; 4] = ["size", "bytes", "interface", "cost"];
+const SECTIONS: [&str; 5] = ["size", "bytes", "imports", "interface", "cost"];
 const WIDTH: usize = 60;
 
 pub fn run(name: &str, sections: &[String]) {
@@ -44,6 +46,7 @@ pub fn run(name: &str, sections: &[String]) {
         match s {
             "size" => size::report(sdk.wasm, solang.wasm),
             "bytes" => section::report(sdk.wasm, solang.wasm),
+            "imports" => imports::report(sdk.wasm, solang.wasm),
             "interface" => interface::report(&sdk, &solang),
             "cost" => cost::report(name, &sdk, &solang),
 
