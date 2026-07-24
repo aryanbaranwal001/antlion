@@ -3,7 +3,7 @@ use soroban_env_host::{
     testutils::{generate_account_id, generate_bytes_array},
 };
 
-use super::spec::{self, Contract};
+use crate::wasm::spec::{self, Contract};
 
 struct Cost {
     cpu: u64,

@@ -21,7 +21,7 @@ pub struct Interface {
 
 /// Read `contractspecv0` and XDR-decode its function entries.
 pub fn parse(wasm: &[u8]) -> Interface {
-    let Some(bytes) = super::wasm::custom_section(wasm, "contractspecv0") else {
+    let Some(bytes) = super::custom_section(wasm, "contractspecv0") else {
         return Interface { funcs: Vec::new() };
     };
 

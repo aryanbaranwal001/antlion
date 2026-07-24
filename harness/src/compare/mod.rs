@@ -3,13 +3,10 @@ use std::{fs, path::Path};
 mod cost;
 mod imports;
 mod interface;
-mod names;
 mod section;
 mod size;
-mod spec;
-mod wasm;
 
-use spec::Contract;
+use crate::wasm::spec::{self, Contract};
 
 const SECTIONS: [&str; 5] = ["size", "bytes", "imports", "interface", "cost"];
 const WIDTH: usize = 60;

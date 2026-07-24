@@ -1,5 +1,5 @@
 // Print the two contracts' interfaces side by side, from the specs parsed in `spec`.
-use super::spec::{self, Contract};
+use crate::wasm::spec::{self, Contract};
 
 pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("contract interface");

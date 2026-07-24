@@ -1,4 +1,4 @@
-use super::wasm::read_leb128;
+use crate::wasm::read_leb128;
 
 pub fn report(sdk: &[u8], solang: &[u8]) {
     super::banner("aggregate section byte breakdown");

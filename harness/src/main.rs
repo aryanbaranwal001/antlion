@@ -4,6 +4,7 @@ use std::{env, fs};
 
 mod build;
 mod compare;
+mod wasm;
 
 fn main() {
     let mut args = env::args().skip(1);

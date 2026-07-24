@@ -1,3 +1,6 @@
+pub mod names;
+pub mod spec;
+
 /// Read an unsigned LEB128 integer: (value, bytes_consumed).
 pub fn read_leb128(bytes: &[u8]) -> (u32, usize) {
     let mut result = 0u32;

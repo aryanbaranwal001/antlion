@@ -1,4 +1,4 @@
-use super::{names, wasm};
+use crate::wasm::{self, names};
 
 pub fn report(sdk: &[u8], solang: &[u8]) {
     super::banner("import surface");
