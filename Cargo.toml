@@ -1,5 +1,5 @@
 [workspace]
-members = ["harness", "contracts/counter/sdk", "contracts/adder/sdk"]
+members = ["harness", "contracts/counter/sdk", "contracts/adder/sdk", "contracts/parity/sdk"]
 default-members = ["harness"]
 resolver = "2"
 
