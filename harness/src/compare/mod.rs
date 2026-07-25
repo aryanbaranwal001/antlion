@@ -3,15 +3,16 @@ use std::{fs, path::Path};
 mod cost;
 mod imports;
 mod interface;
+mod opcodes;
 mod section;
 mod size;
 
 use crate::wasm::spec::{self, Contract};
 
-const SECTIONS: [&str; 5] = ["size", "bytes", "imports", "interface", "cost"];
+const SECTIONS: [&str; 6] = ["size", "sections", "imports", "interface", "cost", "opcodes"];
 const WIDTH: usize = 60;
 
-pub fn run(name: &str, sections: &[String]) {
+pub fn run(name: &str, args: impl Iterator<Item = String>) {
     let sdk_path = format!("out/{name}/sdk.wasm");
     let solang_path = format!("out/{name}/solang.wasm");
 
@@ -33,22 +34,37 @@ pub fn run(name: &str, sections: &[String]) {
 
     title(name);
 
-    let selected: Vec<&str> = if sections.is_empty() || sections.iter().any(|s| s == "all") {
+    // Consume `--report <names>` into `requested`; the iterator keeps whatever's left
+    // (the flags) for the section to read.
+    let mut args = args.peekable();
+    let mut requested: Vec<String> = Vec::new();
+    if matches!(args.peek().map(String::as_str), Some("--report")) {
+        args.next();
+        while let Some(a) = args.peek() {
+            if a.starts_with("--") {
+                break;
+            }
+            requested.push(args.next().unwrap());
+        }
+    }
+
+    let selected: Vec<&str> = if requested.is_empty() || requested.iter().any(|s| s == "all") {
         SECTIONS.to_vec()
     } else {
-        sections.iter().map(String::as_str).collect()
+        requested.iter().map(String::as_str).collect()
     };
 
     for s in selected {
         match s {
             "size" => size::report(sdk.wasm, solang.wasm),
-            "bytes" => section::report(sdk.wasm, solang.wasm),
+            "sections" => section::report(sdk.wasm, solang.wasm),
             "imports" => imports::report(sdk.wasm, solang.wasm),
             "interface" => interface::report(&sdk, &solang),
             "cost" => cost::report(name, &sdk, &solang),
+            "opcodes" => opcodes::report(sdk.wasm, solang.wasm, &mut args),
 
             other => panic!(
-                "unknown section `{other}` — pick from: {}, all",
+                "unknown report `{other}` — pick from: {}, all",
                 SECTIONS.join(", ")
             ),
         }

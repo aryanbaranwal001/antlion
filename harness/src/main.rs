@@ -8,8 +8,7 @@ mod wasm;
 
 fn main() {
     let mut args = env::args().skip(1);
-
-    let usage = "usage: --build <name> | --compare <name> [--sections all|size|bytes|interface|cost ...]";
+    let usage = "usage: --build <name> | --compare <name> [--report size|opcodes|...]";
     let cmd = args.next().expect(usage);
     let name = args.next().expect(usage);
 
@@ -21,14 +20,7 @@ fn main() {
             build::sdk::build(&name, &out_dir);
             build::solang::build(&name, &out_dir);
         }
-        "--compare" => {
-            let sections = match args.next().as_deref() {
-                Some("--sections") => args.collect(),
-                Some(other) => panic!("unexpected arg `{other}`; {usage}"),
-                None => Vec::new(),
-            };
-            compare::run(&name, &sections);
-        }
+        "--compare" => compare::run(&name, args),
         _ => panic!("{usage}"),
     }
 }
