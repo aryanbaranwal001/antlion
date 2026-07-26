@@ -1,18 +1,13 @@
-// Read the instruction stream of every function body, via `wasmparser`.
 use std::collections::HashMap;
 use wasmparser::{Parser, Payload};
 
-/// One instruction: its `Debug` text with immediates (`I32Const { value: 4 }`) and the
-/// control-flow nesting it sits at. The opcode name is a slice of `text`, not a
-/// separate allocation.
+/// One instruction: its `Debug` text with immediates, and its nesting depth.
 pub struct Instr {
     pub text: String,
     pub depth: usize,
 }
 
-/// One locally-defined function: its module index, its export name (if exported), the
-/// byte span of its body in the code section, its declared local count, its `locals:`
-/// line, and its instruction stream.
+/// One locally defined function.
 pub struct Function {
     pub index: u32,
     pub name: Option<String>,
@@ -23,26 +18,24 @@ pub struct Function {
 }
 
 impl Function {
-    /// The variant name of each instruction in order (e.g. `I32Load`, `Call`, `End`),
-    /// borrowed from the stored text.
+    /// Each instruction's opcode name, e.g. `I32Load`, `Call`, `End`.
     pub fn ops(&self) -> impl Iterator<Item = &str> {
         self.instrs.iter().map(|i| variant(&i.text))
     }
 
-    /// Deepest control-flow nesting reached in the body.
+    /// Deepest nesting reached in the body.
     pub fn max_depth(&self) -> usize {
         self.instrs.iter().map(|i| i.depth).max().unwrap_or(0)
     }
 
-    /// How many `Call`/`CallIndirect` instructions the body issues.
+    /// How many calls the body issues.
     pub fn calls(&self) -> usize {
         self.ops()
             .filter(|n| matches!(*n, "Call" | "CallIndirect"))
             .count()
     }
 
-    /// The disassembly: the `locals:` line, then one indented line per instruction.
-    /// Built on demand — only `--dump` needs it.
+    /// The disassembly, built on demand — only `--dump` needs it.
     pub fn lines(&self) -> Vec<String> {
         let mut out = vec![self.locals.clone()];
         out.extend(
@@ -54,9 +47,8 @@ impl Function {
     }
 }
 
-/// Every locally-defined function, in code-section order. The code section stores no
-/// indices — imports occupy `0..k`, so a body's index is `k` plus its position — and
-/// export names are looked up against that index.
+/// Every locally defined function, in code-section order. A body's index is its
+/// position plus the number of imported functions.
 pub fn functions(wasm: &[u8]) -> Vec<Function> {
     let mut imported_funcs = 0u32;
     let mut names: HashMap<u32, String> = HashMap::new();
@@ -99,9 +91,8 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
     out
 }
 
-/// The function's local declarations as one line, e.g. `locals: 2× i32, 1× i64`,
-/// plus the total count. Locals are stored run-length encoded, hence the `count× type`
-/// pairs — the total is the sum of the counts, not the number of declarations.
+/// The locals as one line, e.g. `locals: 2× i32, 1× i64`, plus the total count.
+/// They're run-length encoded, so the total sums the counts, not the declarations.
 fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
     let reader = body
         .get_locals_reader()
@@ -121,11 +112,10 @@ fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
         .collect();
     (format!("locals: {}", text.join(", ")), total)
 }
-/// Read the instruction stream, tagging each with its control-flow nesting depth.
+/// Read the instruction stream, tagging each with its nesting depth.
 ///
-/// Of the arms below, only `Block`, `Loop` and `End` occur in our builds — LLVM lowers
-/// branches to `block` + `br_if`, so `If`/`Else` never appear. They're kept for
-/// hand-written wat and non-LLVM toolchains, but are untested here.
+/// Only `Block`, `Loop` and `End` occur in our builds — LLVM lowers branches to
+/// `block` + `br_if`, so `If`/`Else` never appear.
 // TODO: remove redundant If / Else
 // TODO: check if all the operators have been taken into account
 fn read_body(body: &wasmparser::FunctionBody) -> Vec<Instr> {
@@ -172,9 +162,8 @@ fn valtype(t: wasmparser::ValType) -> &'static str {
     }
 }
 
-/// An operator's variant name, taken as the leading alphanumeric run of its `Debug`
-/// output — `I32Const { value: 4 }` becomes `I32Const`. Avoids matching ~200 variants
-/// by hand, at the cost of depending on `Debug` formatting.
+/// An operator's variant name: the leading alphanumeric run of its `Debug` output,
+/// so `I32Const { value: 4 }` becomes `I32Const`.
 fn variant(text: &str) -> &str {
     text.split(|c: char| !c.is_alphanumeric())
         .next()

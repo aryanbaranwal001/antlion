@@ -21,8 +21,7 @@ pub fn report(sdk: &Contract, solang: &Contract, args: &mut impl Iterator<Item =
     }
 }
 
-/// One row per bucket: instruction counts on each side. Buckets empty on both
-/// sides are skipped.
+/// One row per bucket, skipping those empty on both sides.
 fn default(sdk: &Contract, solang: &Contract) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
@@ -45,8 +44,7 @@ fn default(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// As `default`, but each bucket is broken out into its individual opcodes and
-/// followed by the opcodes only one side uses.
+/// As `default`, plus each bucket's individual opcodes and the one-sided ones.
 fn detail(sdk: &Contract, solang: &Contract) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
@@ -82,8 +80,7 @@ fn detail(sdk: &Contract, solang: &Contract) {
 
 const COL: usize = 44;
 
-/// Side-by-side disassembly. Functions exported by both sides are paired by name in
-/// sdk order, then those exported by only one side, then all internal functions.
+/// Side-by-side disassembly: paired exports first, one-sided next, internals last.
 fn dump(sdk: &Contract, solang: &Contract) {
     super::banner("code dump");
 
@@ -127,8 +124,7 @@ fn dump(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// Print two independent line lists as side-by-side columns in lockstep — no alignment,
-/// no markers; the shorter side is padded with blanks.
+/// Two line lists as side-by-side columns, the shorter padded with blanks.
 fn columns(a: &[String], b: &[String]) {
     for i in 0..a.len().max(b.len()) {
         let left = fit(a.get(i).map(String::as_str).unwrap_or(""), COL);
@@ -137,9 +133,7 @@ fn columns(a: &[String], b: &[String]) {
     }
 }
 
-/// Flat dump lines for every *internal* (unexported) function — a `function #N` header,
-/// its disassembly, then a blank separator. Exported functions are skipped (already
-/// shown, paired, above).
+/// Dump lines for every internal function, each under a `function #N` header.
 fn internal_lines(fns: &[code::Function]) -> Vec<String> {
     let mut out = Vec::new();
 
@@ -154,7 +148,7 @@ fn internal_lines(fns: &[code::Function]) -> Vec<String> {
     out
 }
 
-/// A contract's exported functions, indexed by export name.
+/// Exported functions, indexed by name.
 fn exported(fns: &[code::Function]) -> HashMap<&str, &code::Function> {
     fns.iter()
         .filter_map(|f| f.name.as_deref().map(|n| (n, f)))
@@ -172,7 +166,7 @@ fn rule(text: &str) {
     println!("{left}{text}{right}\n");
 }
 
-/// Left-justify `s` to width `w`, truncating with `…` if it overflows.
+/// Left-justify `s` to width `w`, truncating with `…`.
 fn fit(s: &str, w: usize) -> String {
     if s.chars().count() <= w {
         format!("{s:<w$}")
@@ -182,8 +176,7 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
-/// Count occurrences of each opcode name across every function body. Keys borrow
-/// from the decoded instruction text — no allocation per instruction.
+/// Count each opcode name across every function body.
 fn feed(fns: &[code::Function]) -> BTreeMap<&str, u64> {
     let mut m = BTreeMap::new();
     for op in fns.iter().flat_map(code::Function::ops) {
@@ -192,7 +185,7 @@ fn feed(fns: &[code::Function]) -> BTreeMap<&str, u64> {
     m
 }
 
-/// Total count of every opcode that falls in bucket `b`.
+/// Total count of the opcodes in bucket `b`.
 fn sum_bucket(counts: &BTreeMap<&str, u64>, b: &str) -> u64 {
     counts
         .iter()
@@ -201,7 +194,7 @@ fn sum_bucket(counts: &BTreeMap<&str, u64>, b: &str) -> u64 {
         .sum()
 }
 
-/// Sorted opcode names that fall in bucket `b` and are present on either side.
+/// Sorted opcode names in bucket `b`, present on either side.
 fn opcodes_in<'a>(
     b: &str,
     sdk: &BTreeMap<&'a str, u64>,
@@ -218,7 +211,7 @@ fn opcodes_in<'a>(
     names
 }
 
-/// The exact opcodes present on only one side, listed per implementation.
+/// The opcodes present on only one side.
 fn exclusives(sdk: &BTreeMap<&str, u64>, solang: &BTreeMap<&str, u64>) {
     let sdk_only: Vec<&str> = sdk
         .keys()
@@ -246,7 +239,7 @@ fn join(names: &[&str]) -> String {
     }
 }
 
-/// Trailing note for a row an opcode appears on only one side of.
+/// Trailing note when an opcode is one-sided.
 fn marker(sdk: u64, solang: u64) -> &'static str {
     match (sdk, solang) {
         (_, 0) => "sdk only",
@@ -255,15 +248,14 @@ fn marker(sdk: u64, solang: u64) -> &'static str {
     }
 }
 
-/// A bucket name wrapped in a light rule filling the 20-char label column,
-/// e.g. `control flow` -> `── control flow ────`.
+/// A bucket name wrapped in a rule, e.g. `── control flow ────`.
 fn heading(name: &str) -> String {
     let base = format!("── {name} ");
     let pad = 20usize.saturating_sub(base.chars().count());
     format!("{base}{}", "─".repeat(pad))
 }
 
-/// One table line: label, both counts, signed difference, optional marker.
+/// One table line.
 fn row(label: &str, sdk: u64, solang: u64, marker: &str) {
     let diff = super::signed(sdk as i64 - solang as i64);
     if marker.is_empty() {
@@ -273,7 +265,7 @@ fn row(label: &str, sdk: u64, solang: u64, marker: &str) {
     }
 }
 
-/// Map an opcode's variant name (e.g. `I32Load`, `Call`) to its histogram bucket.
+/// Which bucket an opcode belongs to.
 fn bucket(name: &str) -> &'static str {
     match name {
         "Call" | "CallIndirect" => "calls",
@@ -293,7 +285,7 @@ fn bucket(name: &str) -> &'static str {
     }
 }
 
-/// A numeric op: type-prefixed and not already claimed by load/store/const above.
+/// A numeric op: type-prefixed, and not claimed by the arms above.
 fn is_numtype(name: &str) -> bool {
     ["I32", "I64", "F32", "F64"]
         .iter()

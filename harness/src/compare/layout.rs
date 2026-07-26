@@ -1,11 +1,9 @@
 use crate::wasm::{Contract, Layout};
 
-/// A wasm page is 64 KiB — a bare page count doesn't read as a size.
+/// A wasm page is 64 KiB.
 const PAGE: u64 = 64 * 1024;
 
-/// What each build declares for the VM to allocate at instantiation: linear memory,
-/// the function table, globals and data segments. `sections` already gives the byte
-/// size of these sections; this gives their contents.
+/// What each build declares for the VM to allocate at instantiation.
 pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("declared layout");
     println!(
@@ -53,8 +51,7 @@ pub fn report(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// A cell: the rendered text, plus the number behind it when there is one, so the
-/// diff column can be computed without re-deriving it.
+/// A cell: the rendered text, plus the number behind it when there is one.
 type Cell = (String, Option<u64>);
 
 fn num(v: u64) -> Cell {
@@ -65,7 +62,7 @@ fn none() -> Cell {
     ("—".to_string(), None)
 }
 
-/// A page count rendered with its byte equivalent, e.g. `16 (1 MiB)`.
+/// A page count with its byte equivalent, e.g. `16 (1 MiB)`.
 fn pages(l: &Layout, pick: impl Fn(&crate::wasm::Limits) -> Option<u32>) -> Cell {
     match l.memory.as_ref().and_then(|m| pick(m)) {
         Some(p) => (format!("{p} ({})", bytes(p as u64 * PAGE)), Some(p as u64)),
@@ -87,7 +84,7 @@ fn table_limit(l: &Layout, pick: impl Fn(&crate::wasm::Limits) -> Option<u32>) -
     }
 }
 
-/// Bytes as KiB/MiB — page counts are only meaningful once converted.
+/// Bytes as KiB/MiB.
 fn bytes(n: u64) -> String {
     match n {
         n if n >= 1 << 20 => format!("{} MiB", n / (1 << 20)),
@@ -96,7 +93,7 @@ fn bytes(n: u64) -> String {
     }
 }
 
-/// One line; the diff is `—` unless both sides produced a number.
+/// One line; the diff is `—` unless both sides gave a number.
 fn row(label: &str, sdk: Cell, solang: Cell) {
     let diff = match (sdk.1, solang.1) {
         (Some(a), Some(b)) => super::signed(a as i64 - b as i64),
@@ -105,7 +102,7 @@ fn row(label: &str, sdk: Cell, solang: Cell) {
     println!("{label:<22} {:>14} {:>14} {diff:>9}", sdk.0, solang.0);
 }
 
-/// Call out the divergences that matter but don't show up as a number in the table.
+/// Divergences that don't show up as a number in the table.
 fn notes(sdk: &Layout, solang: &Layout) {
     let growable = |l: &Layout| matches!(&l.memory, Some(m) if m.max.is_none());
     if growable(sdk) != growable(solang) {

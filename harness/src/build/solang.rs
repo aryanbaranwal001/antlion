@@ -1,6 +1,6 @@
 use std::{fs, process::Command};
 
-/// Compile the solidity contract to wasm and normalize output to `out/<name>/solang.wasm`.
+/// Compile the solidity contract to `out/<name>/solang.wasm`.
 pub fn build(name: &str, out_dir: &str) {
     let status = Command::new("solang")
         .args([

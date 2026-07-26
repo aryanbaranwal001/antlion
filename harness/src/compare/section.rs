@@ -25,8 +25,7 @@ pub fn report(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// Sum sizes per name, keeping first-seen order. Only custom sections can repeat —
-/// every other id is allowed at most once per module.
+/// Sum sizes per name, in first-seen order. Only custom sections can repeat.
 fn aggregate(secs: &[Section]) -> Vec<(String, usize)> {
     let mut out: Vec<(String, usize)> = Vec::new();
     for s in secs {
@@ -38,8 +37,7 @@ fn aggregate(secs: &[Section]) -> Vec<(String, usize)> {
     out
 }
 
-/// Row order for the table: the longer side's order, then whatever only the other
-/// side has, appended.
+/// Row order: the longer side's order, then whatever only the other side has.
 fn section_order(a: &[(String, usize)], b: &[(String, usize)]) -> Vec<String> {
     let (base, extra) = if a.len() >= b.len() { (a, b) } else { (b, a) };
     let mut order: Vec<String> = base.iter().map(|(n, _)| n.clone()).collect();
@@ -51,7 +49,7 @@ fn section_order(a: &[(String, usize)], b: &[(String, usize)]) -> Vec<String> {
     order
 }
 
-/// Size of the named section, or 0 if that side doesn't have it.
+/// Size of the named section, or 0 if absent.
 fn size_of(secs: &[(String, usize)], name: &str) -> usize {
     secs.iter().find(|(n, _)| n == name).map_or(0, |(_, s)| *s)
 }

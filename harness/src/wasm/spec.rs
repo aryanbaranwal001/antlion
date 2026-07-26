@@ -50,14 +50,12 @@ pub fn sig(f: &FnSpec) -> String {
     }
 }
 
-/// Synthesize a concrete argument `Val` for each input type. `None` if any input is
-/// a type we don't build yet, so the caller can skip that function cleanly.
+/// A concrete argument `Val` per input type. `None` if any type is unsupported.
 pub fn synth_args(inputs: &[ScSpecTypeDef]) -> Option<Vec<Val>> {
     inputs.iter().map(arg_val).collect()
 }
 
-/// A stand-in value for one input type — `true` for bools, `1` for the integers.
-/// `None` for anything else, which makes the whole function unmeasurable.
+/// A stand-in value for one input type. `None` if we can't build that type.
 fn arg_val(t: &ScSpecTypeDef) -> Option<Val> {
     use ScSpecTypeDef as St;
     Some(match t {
@@ -70,7 +68,7 @@ fn arg_val(t: &ScSpecTypeDef) -> Option<Val> {
     })
 }
 
-/// A spec type rendered for display; container types recurse into their elements.
+/// A spec type rendered for display.
 fn type_name(t: &ScSpecTypeDef) -> String {
     use ScSpecTypeDef::*;
 

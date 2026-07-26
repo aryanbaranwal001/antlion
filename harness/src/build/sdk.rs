@@ -1,6 +1,6 @@
 use std::{fs, process::Command};
 
-/// Build the rust soroban sdk contract to wasm and copy it to `out/<name>/sdk.wasm`.
+/// Build the rust sdk contract to `out/<name>/sdk.wasm`.
 pub fn build(name: &str, out_dir: &str) {
     let status = Command::new("cargo")
         .args([

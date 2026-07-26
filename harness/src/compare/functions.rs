@@ -1,6 +1,6 @@
 use crate::wasm::{Contract, code};
 
-/// The five per-function numbers, for one side.
+/// The five numbers, for one side.
 #[derive(Default)]
 struct Metrics {
     bytes: usize,
@@ -21,8 +21,8 @@ impl Metrics {
         }
     }
 
-    /// Fold another function in: everything sums except depth, where summing the
-    /// nesting of unrelated functions would mean nothing, so the max is kept.
+    /// Fold another function in. Depth takes the max — summing unrelated nesting
+    /// would mean nothing.
     fn merge(&mut self, o: &Metrics) {
         self.bytes += o.bytes;
         self.instrs += o.instrs;
@@ -32,9 +32,8 @@ impl Metrics {
     }
 }
 
-/// Per-function size and complexity, so a whole-module gap can be attributed to a
-/// specific function. Exported functions are paired by name; internal ones are
-/// anonymous and unpairable across builds, so they collapse into one summed row.
+/// Per-function size and complexity. Exports pair by name; internals are anonymous
+/// and unpairable across builds, so they collapse into one summed row.
 pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("function-level metrics");
 
@@ -59,7 +58,7 @@ pub fn report(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// Exported function names across both builds, sdk order first.
+/// Exported names from both builds, sdk order first.
 fn exported_names(sdk: &[code::Function], solang: &[code::Function]) -> Vec<String> {
     let mut out: Vec<String> = sdk.iter().filter_map(|f| f.name.clone()).collect();
     for f in solang {
@@ -75,7 +74,7 @@ fn find<'a>(fns: &'a [code::Function], name: &str) -> Option<&'a code::Function>
     fns.iter().find(|f| f.name.as_deref() == Some(name))
 }
 
-/// Every unexported function folded into one `Metrics`, plus how many there were.
+/// Every internal function folded into one `Metrics`, plus the count.
 fn internals(fns: &[code::Function]) -> (Metrics, usize) {
     let mut m = Metrics::default();
     let mut n = 0;
@@ -87,15 +86,12 @@ fn internals(fns: &[code::Function]) -> (Metrics, usize) {
     (m, n)
 }
 
-/// Column widths: the name, then a `sdk sol diff` triple per metric — wide for the
-/// four-digit byte and instruction counts, narrow for the rest. Each span includes
-/// the single spaces between its three cells.
+/// Column widths, each span including the spaces between its cells.
 const NAME: usize = 13;
 const WIDE: usize = 17;
 const NARROW: usize = 14;
 
-/// Two header rows — the metric name centred over its group, then the per-side
-/// labels — with `│` between groups so the eye can find a column, and a rule under.
+/// Two header rows: the metric name over its group, then the per-side labels.
 fn header() {
     println!(
         "{:<NAME$} {:^WIDE$} │ {:^WIDE$} │ {:^NARROW$} │ {:^NARROW$} │ {:^NARROW$}",
@@ -126,7 +122,7 @@ fn header() {
     );
 }
 
-/// One line; a side missing the function prints `—` in each of its cells.
+/// One line; a side missing the function prints `—`.
 fn row(name: &str, sdk: Option<&Metrics>, solang: Option<&Metrics>) {
     let pair = |s: Option<usize>, l: Option<usize>| match (s, l) {
         (Some(s), Some(l)) => (

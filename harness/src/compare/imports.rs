@@ -1,7 +1,6 @@
 use crate::wasm::{Contract, names};
 
-/// Which host functions each side imports, resolved to readable names and ticked
-/// per side so divergences stand out.
+/// Which host functions each side imports.
 pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("import surface");
     println!(
@@ -32,7 +31,7 @@ pub fn report(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// Sorted, deduplicated imports across both sides.
+/// Sorted, deduplicated imports from both sides.
 fn union(sdk: &[(String, String)], solang: &[(String, String)]) -> Vec<(String, String)> {
     let mut all: Vec<(String, String)> = sdk.iter().chain(solang).cloned().collect();
     all.sort();

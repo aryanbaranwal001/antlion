@@ -1,7 +1,6 @@
-// Print the two contracts' interfaces side by side, from the specs parsed in `spec`.
 use crate::wasm::{Contract, spec};
 
-/// Print each function's signature on both sides, `—` where one side lacks it.
+/// Each function's signature on both sides.
 pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("contract interface");
     println!("{:<40} {:<40}", "sdk", "solang\n");
@@ -14,7 +13,7 @@ pub fn report(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// Union of function names across both contracts, sdk order first.
+/// Function names from both contracts, sdk order first.
 fn fn_names(sdk: &Contract, solang: &Contract) -> Vec<String> {
     let mut names: Vec<String> = sdk.interface.funcs.iter().map(|f| f.name.clone()).collect();
     for f in &solang.interface.funcs {
@@ -25,7 +24,7 @@ fn fn_names(sdk: &Contract, solang: &Contract) -> Vec<String> {
     names
 }
 
-/// This contract's signature for `name`, or `—` if it doesn't declare it.
+/// This contract's signature for `name`, or `—` if it has none.
 fn sig_for(c: &Contract, name: &str) -> String {
     match c.interface.funcs.iter().find(|f| f.name == name) {
         Some(f) => spec::sig(f),
