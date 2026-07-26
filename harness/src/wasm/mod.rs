@@ -17,6 +17,9 @@ pub struct Contract<'a> {
     /// Function signatures decoded from the `contractspecv0` custom section. Empty
     /// if the module doesn't carry one.
     pub interface: spec::Interface,
+    /// Declared memory, table, globals and data segments — what the VM allocates
+    /// at instantiation, before any code runs.
+    pub layout: Layout,
     /// Decoded function bodies — see `functions()`. Only the `opcodes` report needs
     /// them, so they're decoded on first use rather than in `load`.
     functions: OnceCell<Vec<code::Function>>,
@@ -28,6 +31,7 @@ impl<'a> Contract<'a> {
         Contract {
             imports: imports(wasm, &sections),
             interface: spec::parse(wasm, &sections),
+            layout: layout(wasm, &sections),
             functions: OnceCell::new(),
             sections,
             wasm,
@@ -155,7 +159,9 @@ fn decode_imports(body: &[u8]) -> Vec<(String, String)> {
                 j += 1;
                 read_limits(body, &mut j);
             }
-            2 => read_limits(body, &mut j),
+            2 => {
+                read_limits(body, &mut j);
+            }
             _ => j += 2,
         }
 
@@ -174,13 +180,127 @@ fn read_name(body: &[u8], j: &mut usize) -> String {
     String::from_utf8_lossy(&body[start..end]).into_owned()
 }
 
-/// Advance `*j` past a limits: flag byte, min, and max if the flag's low bit is set.
-fn read_limits(body: &[u8], j: &mut usize) {
+/// A memory's or table's declared size: a minimum, and a maximum only when the
+/// limits flag's low bit is set. No maximum means the thing can grow unbounded.
+#[derive(Clone, Copy)]
+pub struct Limits {
+    pub min: u32,
+    pub max: Option<u32>,
+}
+
+/// Read a limits at `*j` — flag byte, min, and max if the flag's low bit is set —
+/// advancing `*j` past it.
+fn read_limits(body: &[u8], j: &mut usize) -> Limits {
     let flag = body[*j];
     *j += 1;
-    *j += read_leb128(&body[*j..]).1;
+
+    let (min, n) = read_leb128(&body[*j..]);
+    *j += n;
+
+    let mut max = None;
     if flag & 1 != 0 {
-        *j += read_leb128(&body[*j..]).1;
+        let (m, n) = read_leb128(&body[*j..]);
+        *j += n;
+        max = Some(m);
+    }
+    Limits { min, max }
+}
+
+/// What the VM has to allocate before a single instruction runs: the declared
+/// linear memory, the function table, the global count and the data segments.
+#[derive(Default)]
+pub struct Layout {
+    pub memory: Option<Limits>,
+    pub memory_imported: bool,
+    pub table: Option<(&'static str, Limits)>,
+    pub table_imported: bool,
+    pub globals: u32,
+    pub data_segments: u32,
+    /// Payload size of the data section, segment headers included — so slightly
+    /// more than the bytes the segments actually write into memory.
+    pub data_bytes: usize,
+}
+
+/// Decode the memory (id 5), table (id 4), global (id 6) and data (id 11) sections,
+/// then fold in anything the module *imports* instead of defining — a module may
+/// import its memory or table, and reading only the defined sections would report
+/// it as absent.
+pub fn layout(bytes: &[u8], sections: &[Section]) -> Layout {
+    let mut out = Layout::default();
+    let body = |id: u8| {
+        sections
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| (&bytes[s.start..s.start + s.size], s.size))
+    };
+
+    if let Some((b, _)) = body(5) {
+        let (_, mut j) = read_leb128(b);
+        out.memory = Some(read_limits(b, &mut j));
+    }
+
+    if let Some((b, _)) = body(4) {
+        let (n, mut j) = read_leb128(b);
+        if n > 0 {
+            let elem = reftype(b[j]);
+            j += 1;
+            out.table = Some((elem, read_limits(b, &mut j)));
+        }
+    }
+
+    if let Some((b, _)) = body(6) {
+        out.globals = read_leb128(b).0;
+    }
+
+    if let Some((b, size)) = body(11) {
+        out.data_segments = read_leb128(b).0;
+        out.data_bytes = size;
+    }
+
+    if let Some((b, _)) = body(2) {
+        imported_layout(b, &mut out);
+    }
+    out
+}
+
+/// Fold imported memories, tables and globals into `out`. Walks the same import
+/// entries as `decode_imports`, but keeps the descriptors it discards.
+fn imported_layout(body: &[u8], out: &mut Layout) {
+    let (count, mut j) = read_leb128(body);
+
+    for _ in 0..count {
+        read_name(body, &mut j);
+        read_name(body, &mut j);
+
+        let kind = body[j];
+        j += 1;
+
+        match kind {
+            0 => j += read_leb128(&body[j..]).1,
+            1 => {
+                let elem = reftype(body[j]);
+                j += 1;
+                out.table = Some((elem, read_limits(body, &mut j)));
+                out.table_imported = true;
+            }
+            2 => {
+                out.memory = Some(read_limits(body, &mut j));
+                out.memory_imported = true;
+            }
+            _ => {
+                j += 2;
+                out.globals += 1;
+            }
+        }
+    }
+}
+
+/// A table's element type. Only the two reference types are valid here.
+fn reftype(b: u8) -> &'static str {
+    match b {
+        0x70 => "funcref",
+        0x6f => "externref",
+        _ => "?",
     }
 }
 
