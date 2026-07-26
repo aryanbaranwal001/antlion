@@ -105,7 +105,7 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
 fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
     let reader = body
         .get_locals_reader()
-        .expect("malformed function body: no locals reader");
+        .expect("[err] malformed function body: no locals reader");
 
     let decls: Vec<(u32, wasmparser::ValType)> =
         reader.into_iter().filter_map(Result::ok).collect();
@@ -131,7 +131,7 @@ fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
 fn read_body(body: &wasmparser::FunctionBody) -> Vec<Instr> {
     let mut reader = body
         .get_operators_reader()
-        .expect("malformed function body: no operators reader");
+        .expect("[err] malformed function body: no operators reader");
 
     let mut out = Vec::new();
     let mut depth = 0usize;

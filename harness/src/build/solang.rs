@@ -12,22 +12,22 @@ pub fn build(name: &str, out_dir: &str) {
             &format!("contracts/{name}/solang/{name}.sol"),
         ])
         .status()
-        .expect("failed to run solang");
+        .expect("[err] failed to run solang");
 
-    assert!(status.success(), "solang compile failed");
+    assert!(status.success(), "[err] solang compile failed");
 
     let capitalized = {
         let mut c = name.chars();
         match c.next() {
             Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            None => unreachable!("name was already validated to exist"),
+            None => unreachable!("[err] name was already validated to exist"),
         }
     };
 
-    fs::remove_file(format!("{out_dir}/{capitalized}.abi")).expect("failed to remove abi");
+    fs::remove_file(format!("{out_dir}/{capitalized}.abi")).expect("[err] failed to remove abi");
     fs::rename(
         format!("{out_dir}/{capitalized}.wasm"),
         format!("{out_dir}/solang.wasm"),
     )
-    .expect("failed to rename solang wasm");
+    .expect("[err] failed to rename solang wasm");
 }

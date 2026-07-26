@@ -8,7 +8,7 @@ mod wasm;
 
 fn main() {
     let mut args = env::args().skip(1);
-    let usage = "usage: --build <name> | --compare <name> [--report sections|interface|...]";
+    let usage = "[err] usage: --build <name> | --compare <name> [--report sections|interface|...]";
     let cmd = args.next().expect(usage);
     let name = args.next().expect(usage);
 

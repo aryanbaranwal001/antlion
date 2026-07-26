@@ -23,19 +23,19 @@ const SECTIONS: [&str; 8] = [
 ];
 const WIDTH: usize = 60;
 
-/// Load both builds of `name` from `out/` and run the requested reports. `args` may
-/// start with `--report <names>`; anything after (the flags) is left for the report
-/// itself to read. No `--report`, or `all`, runs every section in `SECTIONS` order.
+/// Load both builds of `name` from `out/` and run the requested reports.
 pub fn run(name: &str, args: impl Iterator<Item = String>) {
     let sdk_path = format!("out/{name}/sdk.wasm");
     let solang_path = format!("out/{name}/solang.wasm");
 
     if !Path::new(&sdk_path).exists() || !Path::new(&solang_path).exists() {
-        panic!("no build for `{name}` in out/{name}/ — run `cargo run -- --build {name}` first");
+        panic!(
+            "[err] no build for `{name}` in out/{name}/\n[err] run `cargo run -- --build {name}` first"
+        );
     }
 
-    let sdk_wasm = fs::read(&sdk_path).expect("failed to read sdk.wasm");
-    let solang_wasm = fs::read(&solang_path).expect("failed to read solang.wasm");
+    let sdk_wasm = fs::read(&sdk_path).expect("[err] failed to read sdk.wasm");
+    let solang_wasm = fs::read(&solang_path).expect("[err] failed to read solang.wasm");
 
     let sdk = Contract::load(&sdk_wasm);
     let solang = Contract::load(&solang_wasm);
@@ -72,7 +72,7 @@ pub fn run(name: &str, args: impl Iterator<Item = String>) {
             "layout" => layout::report(&sdk, &solang),
 
             other => panic!(
-                "unknown report `{other}` — pick from: {}, all",
+                "[err] unknown report `{other}` — pick from: {}, all",
                 SECTIONS.join(", ")
             ),
         }

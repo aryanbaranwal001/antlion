@@ -12,13 +12,13 @@ pub fn build(name: &str, out_dir: &str) {
             "wasm32v1-none",
         ])
         .status()
-        .expect("failed to run cargo");
+        .expect("[err] failed to run cargo");
 
-    assert!(status.success(), "cargo build failed");
+    assert!(status.success(), "[err] cargo build failed");
 
     fs::copy(
         format!("target/wasm32v1-none/release/{name}.wasm"),
         format!("{out_dir}/sdk.wasm"),
     )
-    .expect("failed to copy rust wasm");
+    .expect("[err] failed to copy rust wasm");
 }

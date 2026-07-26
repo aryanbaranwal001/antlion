@@ -34,10 +34,10 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
         let l = measure(solang.wasm, &f.name, &args);
 
         if let Err(e) = &s {
-            println!("sdk invoke failed: {e:?}");
+            println!("[err] sdk invoke failed: {e:?}");
         }
         if let Err(e) = &l {
-            println!("solang invoke failed: {e:?}");
+            println!("[err] solang invoke failed: {e:?}");
         }
 
         if let (Ok(s), Ok(l)) = (&s, &l) {
