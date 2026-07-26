@@ -1,6 +1,6 @@
 use std::{fs, process::Command};
 
-/// Compile the Solidity contract to wasm and normalize output to `out/<name>/solang.wasm`.
+/// Compile the solidity contract to wasm and normalize output to `out/<name>/solang.wasm`.
 pub fn build(name: &str, out_dir: &str) {
     let status = Command::new("solang")
         .args([
@@ -13,13 +13,14 @@ pub fn build(name: &str, out_dir: &str) {
         ])
         .status()
         .expect("failed to run solang");
+
     assert!(status.success(), "solang compile failed");
 
     let capitalized = {
         let mut c = name.chars();
         match c.next() {
-            None => String::new(),
             Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            None => unreachable!("name was already validated to exist"),
         }
     };
 
