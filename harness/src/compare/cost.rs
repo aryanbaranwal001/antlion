@@ -17,14 +17,14 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     super::banner("runtime cost per call");
 
     if sdk.interface.funcs.is_empty() {
-        println!("no contract spec found for `{name}` — skipping runtime cost");
+        println!("[skip] no contract spec found for `{name}` — no runtime cost measured");
         println!();
         return;
     }
 
     for f in &sdk.interface.funcs {
         let Some(args) = spec::synth_args(&f.inputs) else {
-            println!("{} — unsupported arg types, skipping", spec::sig(f));
+            println!("[skip] {} — unsupported arg types", spec::sig(f));
             continue;
         };
 
