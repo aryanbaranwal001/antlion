@@ -15,7 +15,6 @@ pub fn build(name: &str, out_dir: &str) {
         .expect("failed to run solang");
     assert!(status.success(), "solang compile failed");
 
-    // solang names output after the contract name (capitalized)
     let capitalized = {
         let mut c = name.chars();
         match c.next() {
@@ -24,7 +23,6 @@ pub fn build(name: &str, out_dir: &str) {
         }
     };
 
-    // remvoe abi file
     fs::remove_file(format!("{out_dir}/{capitalized}.abi")).expect("failed to remove abi");
     fs::rename(
         format!("{out_dir}/{capitalized}.wasm"),

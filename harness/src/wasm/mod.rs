@@ -56,13 +56,13 @@ fn decode_imports(body: &[u8]) -> Vec<(String, String)> {
         j += 1;
 
         match kind {
-            0 => j += read_leb128(&body[j..]).1, // func
+            0 => j += read_leb128(&body[j..]).1,
             1 => {
-                j += 1; // table
+                j += 1;
                 read_limits(body, &mut j);
             }
-            2 => read_limits(body, &mut j), // mem
-            _ => j += 2,                    // global
+            2 => read_limits(body, &mut j),
+            _ => j += 2,
         }
 
         out.push((module, name));

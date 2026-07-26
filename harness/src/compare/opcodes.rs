@@ -89,7 +89,6 @@ fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
     let empty: Vec<String> = Vec::new();
     println!("{} │ {}", fit("sdk", COL), fit("solang", COL));
 
-    // Exported on both sides, grouped by name (sdk order).
     for f in &sdk {
         let Some(name) = &f.name else { continue };
         let Some(g) = solang_exp.get(name.as_str()) else {
@@ -99,7 +98,6 @@ fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
         columns(&f.lines, &g.lines);
     }
 
-    // Exported on only one side — shown last, that side's column only.
     for f in &sdk {
         let Some(name) = &f.name else { continue };
         if solang_exp.contains_key(name.as_str()) {
@@ -118,7 +116,6 @@ fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
         columns(&empty, &f.lines);
     }
 
-    // Internal (unexported) functions, both sides' dumps placed in parallel.
     rule("internal functions");
     columns(&internal_lines(&sdk), &internal_lines(&solang));
     println!();

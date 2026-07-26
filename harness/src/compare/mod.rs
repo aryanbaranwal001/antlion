@@ -34,8 +34,6 @@ pub fn run(name: &str, args: impl Iterator<Item = String>) {
 
     title(name);
 
-    // Consume `--report <names>` into `requested`; the iterator keeps whatever's left
-    // (the flags) for the section to read.
     let mut args = args.peekable();
     let mut requested: Vec<String> = Vec::new();
     if matches!(args.peek().map(String::as_str), Some("--report")) {
