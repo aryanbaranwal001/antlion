@@ -1,15 +1,15 @@
-use crate::wasm::read_leb128;
+use crate::wasm::{Contract, Section};
 
 /// Compare the two modules section by section, in bytes.
-pub fn report(sdk: &[u8], solang: &[u8]) {
+pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("aggregate section byte breakdown");
     println!(
         "{:<24} {:>7} {:>7} {:>7}",
         "section", "sdk", "solang", "diff"
     );
 
-    let sdk_secs = aggregate(&sections(sdk));
-    let solang_secs = aggregate(&sections(solang));
+    let sdk_secs = aggregate(&sdk.sections);
+    let solang_secs = aggregate(&solang.sections);
 
     for name in section_order(&sdk_secs, &solang_secs) {
         let a = size_of(&sdk_secs, &name);
@@ -23,41 +23,6 @@ pub fn report(sdk: &[u8], solang: &[u8]) {
         );
     }
     println!();
-}
-
-struct Section {
-    name: String,
-    size: usize,
-}
-
-/// Every section in the module, in file order. Custom sections (id 0) carry a name
-/// of their own, so they're reported as `custom:<name>` rather than lumped together.
-fn sections(bytes: &[u8]) -> Vec<Section> {
-    let mut out = Vec::new();
-    let mut i = 8;
-
-    while i < bytes.len() {
-        let id = bytes[i];
-        i += 1;
-
-        let (size, len) = read_leb128(&bytes[i..]);
-
-        i += len;
-        let size = size as usize;
-
-        let mut name = section_name(id).to_string();
-
-        if id == 0 {
-            let (len, bytes_n) = read_leb128(&bytes[i..]);
-            let start = i + bytes_n;
-            let sname = String::from_utf8_lossy(&bytes[start..start + len as usize]);
-            name = format!("custom:{sname}");
-        }
-
-        out.push(Section { name, size });
-        i += size;
-    }
-    out
 }
 
 /// Sum sizes per name, keeping first-seen order. Only custom sections can repeat —
@@ -89,24 +54,4 @@ fn section_order(a: &[(String, usize)], b: &[(String, usize)]) -> Vec<String> {
 /// Size of the named section, or 0 if that side doesn't have it.
 fn size_of(secs: &[(String, usize)], name: &str) -> usize {
     secs.iter().find(|(n, _)| n == name).map_or(0, |(_, s)| *s)
-}
-
-/// The spec's name for a section id.
-fn section_name(id: u8) -> &'static str {
-    match id {
-        0 => "custom",
-        1 => "type",
-        2 => "import",
-        3 => "function",
-        4 => "table",
-        5 => "memory",
-        6 => "global",
-        7 => "export",
-        8 => "start",
-        9 => "element",
-        10 => "code",
-        11 => "data",
-        12 => "data_count",
-        _ => "unknown",
-    }
 }

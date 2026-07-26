@@ -1,4 +1,4 @@
-use crate::wasm::code;
+use crate::wasm::{Contract, code};
 use std::collections::{BTreeMap, HashMap};
 
 const BUCKETS: [&str; 8] = [
@@ -13,22 +13,22 @@ const BUCKETS: [&str; 8] = [
 ];
 
 /// Dispatch on the trailing flag: `--detail`, `--dump`, or the bucket totals.
-pub fn report(sdk_wasm: &[u8], solang_wasm: &[u8], args: &mut impl Iterator<Item = String>) {
+pub fn report(sdk: &Contract, solang: &Contract, args: &mut impl Iterator<Item = String>) {
     match args.next().as_deref() {
-        Some("--detail") => detail(sdk_wasm, solang_wasm),
-        Some("--dump") => dump(sdk_wasm, solang_wasm),
-        _ => default(sdk_wasm, solang_wasm),
+        Some("--detail") => detail(sdk, solang),
+        Some("--dump") => dump(sdk, solang),
+        _ => default(sdk, solang),
     }
 }
 
 /// One row per bucket: instruction counts on each side. Buckets empty on both
 /// sides are skipped.
-fn default(sdk_wasm: &[u8], solang_wasm: &[u8]) {
+fn default(sdk: &Contract, solang: &Contract) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
 
-    let sdk = feed(&code::opcodes(sdk_wasm));
-    let solang = feed(&code::opcodes(solang_wasm));
+    let sdk = feed(&sdk.functions);
+    let solang = feed(&solang.functions);
 
     let (mut sdk_total, mut solang_total) = (0u64, 0u64);
     for b in BUCKETS {
@@ -47,12 +47,12 @@ fn default(sdk_wasm: &[u8], solang_wasm: &[u8]) {
 
 /// As `default`, but each bucket is broken out into its individual opcodes and
 /// followed by the opcodes only one side uses.
-fn detail(sdk_wasm: &[u8], solang_wasm: &[u8]) {
+fn detail(sdk: &Contract, solang: &Contract) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
 
-    let sdk = feed(&code::opcodes(sdk_wasm));
-    let solang = feed(&code::opcodes(solang_wasm));
+    let sdk = feed(&sdk.functions);
+    let solang = feed(&solang.functions);
 
     let (mut sdk_total, mut solang_total) = (0u64, 0u64);
     for b in BUCKETS {
@@ -84,19 +84,18 @@ const COL: usize = 44;
 
 /// Side-by-side disassembly. Functions exported by both sides are paired by name in
 /// sdk order, then those exported by only one side, then all internal functions.
-fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
+fn dump(sdk: &Contract, solang: &Contract) {
     super::banner("code dump");
 
-    let sdk = code::functions(sdk_wasm);
-    let solang = code::functions(solang_wasm);
+    let (sdk, solang) = (&sdk.functions, &solang.functions);
 
-    let sdk_exp = exported(&sdk);
-    let solang_exp = exported(&solang);
+    let sdk_exp = exported(sdk);
+    let solang_exp = exported(solang);
 
     let empty: Vec<String> = Vec::new();
     println!("{} │ {}", fit("sdk", COL), fit("solang", COL));
 
-    for f in &sdk {
+    for f in sdk {
         let Some(name) = &f.name else { continue };
         let Some(g) = solang_exp.get(name.as_str()) else {
             continue;
@@ -105,7 +104,7 @@ fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
         columns(&f.lines, &g.lines);
     }
 
-    for f in &sdk {
+    for f in sdk {
         let Some(name) = &f.name else { continue };
         if solang_exp.contains_key(name.as_str()) {
             continue;
@@ -114,7 +113,7 @@ fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
         columns(&f.lines, &empty);
     }
 
-    for f in &solang {
+    for f in solang {
         let Some(name) = &f.name else { continue };
         if sdk_exp.contains_key(name.as_str()) {
             continue;
@@ -124,7 +123,7 @@ fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
     }
 
     rule("internal functions");
-    columns(&internal_lines(&sdk), &internal_lines(&solang));
+    columns(&internal_lines(sdk), &internal_lines(solang));
     println!();
 }
 
@@ -183,10 +182,10 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
-/// Count occurrences of each opcode name.
-fn feed(ops: &[String]) -> BTreeMap<String, u64> {
+/// Count occurrences of each opcode name across every function body.
+fn feed(fns: &[code::Function]) -> BTreeMap<String, u64> {
     let mut m = BTreeMap::new();
-    for op in ops {
+    for op in fns.iter().flat_map(|f| &f.ops) {
         *m.entry(op.clone()).or_insert(0) += 1;
     }
     m

@@ -2,6 +2,97 @@ pub mod code;
 pub mod names;
 pub mod spec;
 
+/// Every view of one built contract, parsed once up front. Reports read from this
+/// instead of re-walking the bytes.
+pub struct Contract<'a> {
+    /// The raw module, borrowed. Every other field indexes into or derives from it.
+    pub wasm: &'a [u8],
+    /// Section headers in file order, with each payload's offset and length.
+    pub sections: Vec<Section>,
+    /// `(module, name)` per host import, in import-section order.
+    pub imports: Vec<(String, String)>,
+    /// Locally defined functions in code-section order — imports have no body, so
+    /// these start at function index `imports.len()`.
+    pub functions: Vec<code::Function>,
+    /// Function signatures decoded from the `contractspecv0` custom section. Empty
+    /// if the module doesn't carry one.
+    pub interface: spec::Interface,
+}
+
+impl<'a> Contract<'a> {
+    pub fn load(wasm: &'a [u8]) -> Self {
+        let sections = sections(wasm);
+        Contract {
+            imports: imports(wasm, &sections),
+            interface: spec::parse(wasm, &sections),
+            functions: code::functions(wasm),
+            sections,
+            wasm,
+        }
+    }
+}
+
+/// One section as it appears in the module: its name, and where its payload lives.
+/// `name` is the spec name, or `custom:<name>` for custom sections.
+pub struct Section {
+    pub id: u8,
+    pub name: String,
+    pub start: usize,
+    pub size: usize,
+}
+
+/// Walk the section headers once, from byte 8 (past the magic and version).
+pub fn sections(bytes: &[u8]) -> Vec<Section> {
+    let mut out = Vec::new();
+    let mut i = 8;
+
+    while i < bytes.len() {
+        let id = bytes[i];
+        i += 1;
+
+        let (size, len) = read_leb128(&bytes[i..]);
+        i += len;
+        let size = size as usize;
+
+        let mut name = section_name(id).to_string();
+        if id == 0 {
+            let (nlen, nb) = read_leb128(&bytes[i..]);
+            let start = i + nb;
+            let sname = String::from_utf8_lossy(&bytes[start..start + nlen as usize]);
+            name = format!("custom:{sname}");
+        }
+
+        out.push(Section {
+            id,
+            name,
+            start: i,
+            size,
+        });
+        i += size;
+    }
+    out
+}
+
+/// The spec's name for a section id.
+fn section_name(id: u8) -> &'static str {
+    match id {
+        0 => "custom",
+        1 => "type",
+        2 => "import",
+        3 => "function",
+        4 => "table",
+        5 => "memory",
+        6 => "global",
+        7 => "export",
+        8 => "start",
+        9 => "element",
+        10 => "code",
+        11 => "data",
+        12 => "data_count",
+        _ => "unknown",
+    }
+}
+
 /// Read an unsigned LEB128 integer: (value, bytes_consumed).
 pub fn read_leb128(bytes: &[u8]) -> (u32, usize) {
     let mut result = 0u32;
@@ -20,27 +111,14 @@ pub fn read_leb128(bytes: &[u8]) -> (u32, usize) {
     (result, i)
 }
 
-/// Every `(module, name)` a module imports. Walks the section headers from byte 8
-/// (past the magic and version) and decodes the one with id 2.
-pub fn imports(bytes: &[u8]) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    let mut i = 8;
-
-    while i < bytes.len() {
-        let id = bytes[i];
-        i += 1;
-
-        let (size, len) = read_leb128(&bytes[i..]);
-        i += len;
-        let size = size as usize;
-        let body = &bytes[i..i + size];
-        i += size;
-
-        if id == 2 {
-            out = decode_imports(body);
-        }
-    }
-    out
+/// Every `(module, name)` a module imports, decoded from the already-walked
+/// import section (id 2).
+pub fn imports(bytes: &[u8], sections: &[Section]) -> Vec<(String, String)> {
+    sections
+        .iter()
+        .find(|s| s.id == 2)
+        .map(|s| decode_imports(&bytes[s.start..s.start + s.size]))
+        .unwrap_or_default()
 }
 
 /// Decode the body of an import section: a count, then that many entries of
@@ -95,26 +173,17 @@ fn read_limits(body: &[u8], j: &mut usize) {
     }
 }
 
-/// Return the payload bytes of the custom section in wasm named `want`, if present.
-pub fn custom_section<'a>(bytes: &'a [u8], want: &str) -> Option<&'a [u8]> {
-    let mut i = 8;
-    while i < bytes.len() {
-        let id = bytes[i];
-        i += 1;
+/// Payload of the custom section named `want`, past its name prefix, if present.
+pub fn custom_section<'a>(
+    bytes: &'a [u8],
+    sections: &[Section],
+    want: &str,
+) -> Option<&'a [u8]> {
+    let s = sections
+        .iter()
+        .find(|s| s.name.strip_prefix("custom:") == Some(want))?;
 
-        let (size, len) = read_leb128(&bytes[i..]);
-        i += len;
-        let size = size as usize;
-        let body = &bytes[i..i + size];
-        i += size;
-
-        if id == 0 {
-            let (nlen, nb) = read_leb128(body);
-            let name = &body[nb..nb + nlen as usize];
-            if name == want.as_bytes() {
-                return Some(&body[nb + nlen as usize..]);
-            }
-        }
-    }
-    None
+    let body = &bytes[s.start..s.start + s.size];
+    let (nlen, nb) = read_leb128(body);
+    Some(&body[nb + nlen as usize..])
 }

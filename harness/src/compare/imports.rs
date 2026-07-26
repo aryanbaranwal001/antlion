@@ -1,18 +1,17 @@
-use crate::wasm::{self, names};
+use crate::wasm::{Contract, names};
 
 /// Which host functions each side imports, resolved to readable names and ticked
 /// per side so divergences stand out.
-pub fn report(sdk: &[u8], solang: &[u8]) {
+pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("import surface");
     println!(
         "{:<8} {:<46} {:>5} {:>8}",
         "import", "function", "sdk", "solang"
     );
 
-    let sdk_imports = wasm::imports(sdk);
-    let solang_imports = wasm::imports(solang);
+    let (sdk_imports, solang_imports) = (&sdk.imports, &solang.imports);
 
-    for (module, name) in union(&sdk_imports, &solang_imports) {
+    for (module, name) in union(sdk_imports, solang_imports) {
         let key = (module, name);
         println!(
             "{:<8} {:<46} {:>5} {:>8}",

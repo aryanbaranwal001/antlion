@@ -1,5 +1,5 @@
 // Print the two contracts' interfaces side by side, from the specs parsed in `spec`.
-use crate::wasm::spec::{self, Contract};
+use crate::wasm::{Contract, spec};
 
 /// Print each function's signature on both sides, `—` where one side lacks it.
 pub fn report(sdk: &Contract, solang: &Contract) {

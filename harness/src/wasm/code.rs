@@ -2,35 +2,14 @@
 use std::collections::HashMap;
 use wasmparser::{Parser, Payload};
 
-/// The variant name of every instruction across all function bodies (e.g. `I32Load`,
-/// `Call`, `End`). Imported host functions have no body, so only the module's own code
-/// is seen.
-pub fn opcodes(wasm: &[u8]) -> Vec<String> {
-    let mut out = Vec::new();
-
-    for payload in Parser::new(0).parse_all(wasm) {
-        let Ok(Payload::CodeSectionEntry(body)) = payload else {
-            continue;
-        };
-        let Ok(mut reader) = body.get_operators_reader() else {
-            continue;
-        };
-        while !reader.eof() {
-            match reader.read() {
-                Ok(op) => out.push(name(&op)),
-                Err(_) => break,
-            }
-        }
-    }
-    out
-}
-
-/// One locally-defined function: its module index, its export name (if exported), and
-/// its disassembly lines (the `locals:` line followed by the instruction stream).
+/// One locally-defined function: its module index, its export name (if exported), its
+/// disassembly lines (the `locals:` line followed by the instruction stream), and the
+/// variant name of each instruction in order (e.g. `I32Load`, `Call`, `End`).
 pub struct Function {
     pub index: u32,
     pub name: Option<String>,
     pub lines: Vec<String>,
+    pub ops: Vec<String>,
 }
 
 /// Every locally-defined function, in code-section order. The code section stores no
@@ -63,11 +42,12 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
                 let index = imported_funcs + local_i;
                 local_i += 1;
                 let mut lines = vec![locals_line(&body)];
-                emit_body(&body, &mut lines);
+                let ops = emit_body(&body, &mut lines);
                 out.push(Function {
                     index,
                     name: names.get(&index).cloned(),
                     lines,
+                    ops,
                 });
             }
             _ => {}
@@ -102,30 +82,34 @@ fn locals_line(body: &wasmparser::FunctionBody) -> String {
 /// hand-written wat and non-LLVM toolchains, but are untested here.
 // TODO: remove redundant If / Else
 // TODO: check if all the operators have been taken into account
-fn emit_body(body: &wasmparser::FunctionBody, out: &mut Vec<String>) {
+fn emit_body(body: &wasmparser::FunctionBody, out: &mut Vec<String>) -> Vec<String> {
     let mut reader = body
         .get_operators_reader()
         .expect("malformed function body: no operators reader");
 
+    let mut ops = Vec::new();
     let mut depth = 0usize;
 
     while !reader.eof() {
         let Ok(op) = reader.read() else { break };
 
-        let n = name(&op);
+        let text = format!("{op:?}");
+        let n = variant(&text);
         let closes = n == "End" || n == "Else";
-        let opens = matches!(n.as_str(), "Block" | "Loop" | "If");
+        let opens = matches!(n, "Block" | "Loop" | "If");
 
         if closes {
             depth = depth.saturating_sub(1);
         }
 
-        out.push(format!("{}{op:?}", "  ".repeat(depth)));
+        out.push(format!("{}{text}", "  ".repeat(depth)));
+        ops.push(n.to_string());
 
         if opens || n == "Else" {
             depth += 1;
         }
     }
+    ops
 }
 
 /// A value type's spec name.
@@ -145,10 +129,8 @@ fn valtype(t: wasmparser::ValType) -> &'static str {
 /// An operator's variant name, taken as the leading alphanumeric run of its `Debug`
 /// output — `I32Const { value: 4 }` becomes `I32Const`. Avoids matching ~200 variants
 /// by hand, at the cost of depending on `Debug` formatting.
-fn name(op: &wasmparser::Operator) -> String {
-    format!("{op:?}")
-        .split(|c: char| !c.is_alphanumeric())
+fn variant(text: &str) -> &str {
+    text.split(|c: char| !c.is_alphanumeric())
         .next()
         .unwrap_or("")
-        .to_string()
 }

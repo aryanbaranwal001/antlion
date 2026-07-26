@@ -7,7 +7,7 @@ mod opcodes;
 mod section;
 mod size;
 
-use crate::wasm::spec::{self, Contract};
+use crate::wasm::Contract;
 
 const SECTIONS: [&str; 6] = ["size", "sections", "imports", "interface", "cost", "opcodes"];
 const WIDTH: usize = 60;
@@ -26,14 +26,8 @@ pub fn run(name: &str, args: impl Iterator<Item = String>) {
     let sdk_wasm = fs::read(&sdk_path).expect("failed to read sdk.wasm");
     let solang_wasm = fs::read(&solang_path).expect("failed to read solang.wasm");
 
-    let sdk = Contract {
-        wasm: &sdk_wasm,
-        interface: spec::parse(&sdk_wasm),
-    };
-    let solang = Contract {
-        wasm: &solang_wasm,
-        interface: spec::parse(&solang_wasm),
-    };
+    let sdk = Contract::load(&sdk_wasm);
+    let solang = Contract::load(&solang_wasm);
 
     title(name);
 
@@ -57,12 +51,12 @@ pub fn run(name: &str, args: impl Iterator<Item = String>) {
 
     for s in selected {
         match s {
-            "size" => size::report(sdk.wasm, solang.wasm),
-            "sections" => section::report(sdk.wasm, solang.wasm),
-            "imports" => imports::report(sdk.wasm, solang.wasm),
+            "size" => size::report(&sdk, &solang),
+            "sections" => section::report(&sdk, &solang),
+            "imports" => imports::report(&sdk, &solang),
             "interface" => interface::report(&sdk, &solang),
             "cost" => cost::report(name, &sdk, &solang),
-            "opcodes" => opcodes::report(sdk.wasm, solang.wasm, &mut args),
+            "opcodes" => opcodes::report(&sdk, &solang, &mut args),
 
             other => panic!(
                 "unknown report `{other}` — pick from: {}, all",

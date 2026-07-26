@@ -4,11 +4,6 @@ use soroban_env_host::{
 };
 use std::io::Cursor;
 
-pub struct Contract<'a> {
-    pub wasm: &'a [u8],
-    pub interface: Interface,
-}
-
 pub struct FnSpec {
     pub name: String,
     pub inputs: Vec<ScSpecTypeDef>,
@@ -20,8 +15,8 @@ pub struct Interface {
 }
 
 /// Read `contractspecv0` and XDR-decode its function entries.
-pub fn parse(wasm: &[u8]) -> Interface {
-    let Some(bytes) = super::custom_section(wasm, "contractspecv0") else {
+pub fn parse(wasm: &[u8], sections: &[super::Section]) -> Interface {
+    let Some(bytes) = super::custom_section(wasm, sections, "contractspecv0") else {
         return Interface { funcs: Vec::new() };
     };
 
