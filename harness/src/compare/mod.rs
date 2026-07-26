@@ -1,6 +1,7 @@
 use std::{fs, path::Path};
 
 mod cost;
+mod functions;
 mod imports;
 mod interface;
 mod opcodes;
@@ -9,13 +10,14 @@ mod size;
 
 use crate::wasm::Contract;
 
-const SECTIONS: [&str; 6] = [
+const SECTIONS: [&str; 7] = [
     "size",
     "sections",
     "imports",
     "interface",
     "cost",
     "opcodes",
+    "functions",
 ];
 const WIDTH: usize = 60;
 
@@ -64,6 +66,7 @@ pub fn run(name: &str, args: impl Iterator<Item = String>) {
             "interface" => interface::report(&sdk, &solang),
             "cost" => cost::report(name, &sdk, &solang),
             "opcodes" => opcodes::report(&sdk, &solang, &mut args),
+            "functions" => functions::report(&sdk, &solang),
 
             other => panic!(
                 "unknown report `{other}` — pick from: {}, all",

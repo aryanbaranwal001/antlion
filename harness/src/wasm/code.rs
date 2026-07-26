@@ -10,11 +10,14 @@ pub struct Instr {
     pub depth: usize,
 }
 
-/// One locally-defined function: its module index, its export name (if exported), its
-/// `locals:` line, and its instruction stream.
+/// One locally-defined function: its module index, its export name (if exported), the
+/// byte span of its body in the code section, its declared local count, its `locals:`
+/// line, and its instruction stream.
 pub struct Function {
     pub index: u32,
     pub name: Option<String>,
+    pub bytes: usize,
+    pub local_count: u32,
     pub locals: String,
     pub instrs: Vec<Instr>,
 }
@@ -24,6 +27,18 @@ impl Function {
     /// borrowed from the stored text.
     pub fn ops(&self) -> impl Iterator<Item = &str> {
         self.instrs.iter().map(|i| variant(&i.text))
+    }
+
+    /// Deepest control-flow nesting reached in the body.
+    pub fn max_depth(&self) -> usize {
+        self.instrs.iter().map(|i| i.depth).max().unwrap_or(0)
+    }
+
+    /// How many `Call`/`CallIndirect` instructions the body issues.
+    pub fn calls(&self) -> usize {
+        self.ops()
+            .filter(|n| matches!(*n, "Call" | "CallIndirect"))
+            .count()
     }
 
     /// The disassembly: the `locals:` line, then one indented line per instruction.
@@ -68,10 +83,13 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
             Ok(Payload::CodeSectionEntry(body)) => {
                 let index = imported_funcs + local_i;
                 local_i += 1;
+                let (locals, local_count) = locals_line(&body);
                 out.push(Function {
                     index,
                     name: names.get(&index).cloned(),
-                    locals: locals_line(&body),
+                    bytes: body.range().len(),
+                    local_count,
+                    locals,
                     instrs: read_body(&body),
                 });
             }
@@ -81,24 +99,27 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
     out
 }
 
-/// The function's local declarations as one line, e.g. `locals: 2× i32, 1× i64`.
-/// Locals are stored run-length encoded, hence the `count× type` pairs.
-fn locals_line(body: &wasmparser::FunctionBody) -> String {
+/// The function's local declarations as one line, e.g. `locals: 2× i32, 1× i64`,
+/// plus the total count. Locals are stored run-length encoded, hence the `count× type`
+/// pairs — the total is the sum of the counts, not the number of declarations.
+fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
     let reader = body
         .get_locals_reader()
         .expect("malformed function body: no locals reader");
 
-    let decls: Vec<String> = reader
-        .into_iter()
-        .filter_map(Result::ok)
-        .map(|(n, t)| format!("{n}× {}", valtype(t)))
-        .collect();
+    let decls: Vec<(u32, wasmparser::ValType)> =
+        reader.into_iter().filter_map(Result::ok).collect();
+    let total = decls.iter().map(|(n, _)| n).sum();
 
     if decls.is_empty() {
-        "locals: none".to_string()
-    } else {
-        format!("locals: {}", decls.join(", "))
+        return ("locals: none".to_string(), 0);
     }
+
+    let text: Vec<String> = decls
+        .iter()
+        .map(|(n, t)| format!("{n}× {}", valtype(*t)))
+        .collect();
+    (format!("locals: {}", text.join(", ")), total)
 }
 /// Read the instruction stream, tagging each with its control-flow nesting depth.
 ///
