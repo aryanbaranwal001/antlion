@@ -1,3 +1,6 @@
+/// Resolve a Soroban host import to its readable name. Imports are emitted in a
+/// compressed form — a one-character module and export, e.g. `x._` — so the pair has
+/// to be looked up in `TABLE`. `None` for anything not in it.
 pub fn host_fn_name(module: &str, name: &str) -> Option<&'static str> {
     TABLE
         .iter()

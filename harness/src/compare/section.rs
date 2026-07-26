@@ -1,5 +1,6 @@
 use crate::wasm::read_leb128;
 
+/// Compare the two modules section by section, in bytes.
 pub fn report(sdk: &[u8], solang: &[u8]) {
     super::banner("aggregate section byte breakdown");
     println!(
@@ -29,6 +30,8 @@ struct Section {
     size: usize,
 }
 
+/// Every section in the module, in file order. Custom sections (id 0) carry a name
+/// of their own, so they're reported as `custom:<name>` rather than lumped together.
 fn sections(bytes: &[u8]) -> Vec<Section> {
     let mut out = Vec::new();
     let mut i = 8;
@@ -57,6 +60,8 @@ fn sections(bytes: &[u8]) -> Vec<Section> {
     out
 }
 
+/// Sum sizes per name, keeping first-seen order. Only custom sections can repeat —
+/// every other id is allowed at most once per module.
 fn aggregate(secs: &[Section]) -> Vec<(String, usize)> {
     let mut out: Vec<(String, usize)> = Vec::new();
     for s in secs {
@@ -68,6 +73,8 @@ fn aggregate(secs: &[Section]) -> Vec<(String, usize)> {
     out
 }
 
+/// Row order for the table: the longer side's order, then whatever only the other
+/// side has, appended.
 fn section_order(a: &[(String, usize)], b: &[(String, usize)]) -> Vec<String> {
     let (base, extra) = if a.len() >= b.len() { (a, b) } else { (b, a) };
     let mut order: Vec<String> = base.iter().map(|(n, _)| n.clone()).collect();
@@ -79,10 +86,12 @@ fn section_order(a: &[(String, usize)], b: &[(String, usize)]) -> Vec<String> {
     order
 }
 
+/// Size of the named section, or 0 if that side doesn't have it.
 fn size_of(secs: &[(String, usize)], name: &str) -> usize {
     secs.iter().find(|(n, _)| n == name).map_or(0, |(_, s)| *s)
 }
 
+/// The spec's name for a section id.
 fn section_name(id: u8) -> &'static str {
     match id {
         0 => "custom",

@@ -20,6 +20,8 @@ pub fn read_leb128(bytes: &[u8]) -> (u32, usize) {
     (result, i)
 }
 
+/// Every `(module, name)` a module imports. Walks the section headers from byte 8
+/// (past the magic and version) and decodes the one with id 2.
 pub fn imports(bytes: &[u8]) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut i = 8;
@@ -41,7 +43,10 @@ pub fn imports(bytes: &[u8]) -> Vec<(String, String)> {
     out
 }
 
-/// Decode the body of an import section
+/// Decode the body of an import section: a count, then that many entries of
+/// `module`, `name`, kind byte, and a kind-specific descriptor we only skip over.
+/// The kind byte is `0` func (a type index), `1` table (an elem type then limits),
+/// `2` memory (limits), `3` global (a valtype then a mutability byte).
 fn decode_imports(body: &[u8]) -> Vec<(String, String)> {
     let mut j = 0;
     let (count, len) = read_leb128(&body[j..]);
@@ -70,8 +75,8 @@ fn decode_imports(body: &[u8]) -> Vec<(String, String)> {
     out
 }
 
-// nlen: name length
-// nb: bytes the length field took
+/// Read a length-prefixed UTF-8 name at `*j`, advancing `*j` past it. `nlen` is the
+/// name's length, `nb` the bytes that length field itself took.
 fn read_name(body: &[u8], j: &mut usize) -> String {
     let (nlen, nb) = read_leb128(&body[*j..]);
     let start = *j + nb;

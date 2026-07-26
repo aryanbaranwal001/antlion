@@ -12,6 +12,7 @@ const BUCKETS: [&str; 8] = [
     "memory/other",
 ];
 
+/// Dispatch on the trailing flag: `--detail`, `--dump`, or the bucket totals.
 pub fn report(sdk_wasm: &[u8], solang_wasm: &[u8], args: &mut impl Iterator<Item = String>) {
     match args.next().as_deref() {
         Some("--detail") => detail(sdk_wasm, solang_wasm),
@@ -20,6 +21,8 @@ pub fn report(sdk_wasm: &[u8], solang_wasm: &[u8], args: &mut impl Iterator<Item
     }
 }
 
+/// One row per bucket: instruction counts on each side. Buckets empty on both
+/// sides are skipped.
 fn default(sdk_wasm: &[u8], solang_wasm: &[u8]) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
@@ -42,6 +45,8 @@ fn default(sdk_wasm: &[u8], solang_wasm: &[u8]) {
     println!();
 }
 
+/// As `default`, but each bucket is broken out into its individual opcodes and
+/// followed by the opcodes only one side uses.
 fn detail(sdk_wasm: &[u8], solang_wasm: &[u8]) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
@@ -77,6 +82,8 @@ fn detail(sdk_wasm: &[u8], solang_wasm: &[u8]) {
 
 const COL: usize = 44;
 
+/// Side-by-side disassembly. Functions exported by both sides are paired by name in
+/// sdk order, then those exported by only one side, then all internal functions.
 fn dump(sdk_wasm: &[u8], solang_wasm: &[u8]) {
     super::banner("code dump");
 
@@ -176,6 +183,7 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
+/// Count occurrences of each opcode name.
 fn feed(ops: &[String]) -> BTreeMap<String, u64> {
     let mut m = BTreeMap::new();
     for op in ops {
@@ -184,6 +192,7 @@ fn feed(ops: &[String]) -> BTreeMap<String, u64> {
     m
 }
 
+/// Total count of every opcode that falls in bucket `b`.
 fn sum_bucket(counts: &BTreeMap<String, u64>, b: &str) -> u64 {
     counts
         .iter()
@@ -224,6 +233,7 @@ fn exclusives(sdk: &BTreeMap<String, u64>, solang: &BTreeMap<String, u64>) {
     println!("solang only: {}", join(&solang_only));
 }
 
+/// Comma-separated list, or `—` when empty.
 fn join(names: &[&str]) -> String {
     if names.is_empty() {
         "—".to_string()
@@ -232,6 +242,7 @@ fn join(names: &[&str]) -> String {
     }
 }
 
+/// Trailing note for a row an opcode appears on only one side of.
 fn marker(sdk: u64, solang: u64) -> &'static str {
     match (sdk, solang) {
         (_, 0) => "sdk only",
@@ -248,6 +259,7 @@ fn heading(name: &str) -> String {
     format!("{base}{}", "─".repeat(pad))
 }
 
+/// One table line: label, both counts, signed difference, optional marker.
 fn row(label: &str, sdk: u64, solang: u64, marker: &str) {
     let diff = super::signed(sdk as i64 - solang as i64);
     if marker.is_empty() {

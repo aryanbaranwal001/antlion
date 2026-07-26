@@ -33,6 +33,9 @@ pub struct Function {
     pub lines: Vec<String>,
 }
 
+/// Every locally-defined function, in code-section order. The code section stores no
+/// indices — imports occupy `0..k`, so a body's index is `k` plus its position — and
+/// export names are looked up against that index.
 pub fn functions(wasm: &[u8]) -> Vec<Function> {
     let mut imported_funcs = 0u32;
     let mut names: HashMap<u32, String> = HashMap::new();
@@ -73,6 +76,8 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
     out
 }
 
+/// The function's local declarations as one line, e.g. `locals: 2× i32, 1× i64`.
+/// Locals are stored run-length encoded, hence the `count× type` pairs.
 fn locals_line(body: &wasmparser::FunctionBody) -> String {
     let reader = body
         .get_locals_reader()
@@ -123,6 +128,7 @@ fn emit_body(body: &wasmparser::FunctionBody, out: &mut Vec<String>) {
     }
 }
 
+/// A value type's spec name.
 fn valtype(t: wasmparser::ValType) -> &'static str {
     use wasmparser::ValType::*;
 
@@ -136,6 +142,9 @@ fn valtype(t: wasmparser::ValType) -> &'static str {
     }
 }
 
+/// An operator's variant name, taken as the leading alphanumeric run of its `Debug`
+/// output — `I32Const { value: 4 }` becomes `I32Const`. Avoids matching ~200 variants
+/// by hand, at the cost of depending on `Debug` formatting.
 fn name(op: &wasmparser::Operator) -> String {
     format!("{op:?}")
         .split(|c: char| !c.is_alphanumeric())

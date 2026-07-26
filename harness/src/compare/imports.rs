@@ -1,5 +1,7 @@
 use crate::wasm::{self, names};
 
+/// Which host functions each side imports, resolved to readable names and ticked
+/// per side so divergences stand out.
 pub fn report(sdk: &[u8], solang: &[u8]) {
     super::banner("import surface");
     println!(
@@ -31,6 +33,7 @@ pub fn report(sdk: &[u8], solang: &[u8]) {
     println!();
 }
 
+/// Sorted, deduplicated imports across both sides.
 fn union(sdk: &[(String, String)], solang: &[(String, String)]) -> Vec<(String, String)> {
     let mut all: Vec<(String, String)> = sdk.iter().chain(solang).cloned().collect();
     all.sort();
@@ -38,6 +41,7 @@ fn union(sdk: &[(String, String)], solang: &[(String, String)]) -> Vec<(String, 
     all
 }
 
+/// Presence cell: `✓` or `—`.
 fn mark(present: bool) -> &'static str {
     if present { "✓" } else { "—" }
 }

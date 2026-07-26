@@ -1,4 +1,4 @@
-// total size
+/// Compare the two modules' total wasm byte size.
 pub fn report(sdk: &[u8], solang: &[u8]) {
     super::banner("total size");
 

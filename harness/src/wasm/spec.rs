@@ -61,6 +61,8 @@ pub fn synth_args(inputs: &[ScSpecTypeDef]) -> Option<Vec<Val>> {
     inputs.iter().map(arg_val).collect()
 }
 
+/// A stand-in value for one input type — `true` for bools, `1` for the integers.
+/// `None` for anything else, which makes the whole function unmeasurable.
 fn arg_val(t: &ScSpecTypeDef) -> Option<Val> {
     use ScSpecTypeDef as St;
     Some(match t {
@@ -73,6 +75,7 @@ fn arg_val(t: &ScSpecTypeDef) -> Option<Val> {
     })
 }
 
+/// A spec type rendered for display; container types recurse into their elements.
 fn type_name(t: &ScSpecTypeDef) -> String {
     use ScSpecTypeDef::*;
 

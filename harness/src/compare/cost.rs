@@ -10,6 +10,9 @@ struct Cost {
     mem: u64,
 }
 
+/// Invoke every function in the sdk spec on both builds and compare metered cost.
+/// Each call gets a fresh host, so functions are always measured against empty
+/// storage — nothing an earlier call wrote survives into the next.
 pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     super::banner("runtime cost per call");
 
@@ -74,6 +77,7 @@ fn measure(wasm: &[u8], func: &str, args: &[Val]) -> Result<Cost, HostError> {
     })
 }
 
+/// One metric line: label, both sides, signed difference.
 fn metric_row(label: &str, sdk: u64, solang: u64) {
     println!(
         "{:<10} {:>12} {:>12} {:>12}",

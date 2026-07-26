@@ -12,6 +12,9 @@ use crate::wasm::spec::{self, Contract};
 const SECTIONS: [&str; 6] = ["size", "sections", "imports", "interface", "cost", "opcodes"];
 const WIDTH: usize = 60;
 
+/// Load both builds of `name` from `out/` and run the requested reports. `args` may
+/// start with `--report <names>`; anything after (the flags) is left for the report
+/// itself to read. No `--report`, or `all`, runs every section in `SECTIONS` order.
 pub fn run(name: &str, args: impl Iterator<Item = String>) {
     let sdk_path = format!("out/{name}/sdk.wasm");
     let solang_path = format!("out/{name}/solang.wasm");
@@ -69,6 +72,7 @@ pub fn run(name: &str, args: impl Iterator<Item = String>) {
     }
 }
 
+/// Format a difference with an explicit sign, e.g. `+12` / `-3`.
 fn signed(d: i64) -> String {
     if d >= 0 {
         format!("+{d}")
@@ -77,6 +81,7 @@ fn signed(d: i64) -> String {
     }
 }
 
+/// A report's heading: the text upper-cased and centred in a `━━━` rule.
 fn banner(text: &str) {
     let label = format!("  {}  ", text.to_uppercase());
     let pad = WIDTH.saturating_sub(label.chars().count());
@@ -87,6 +92,7 @@ fn banner(text: &str) {
     println!("{left}{label}{right}\n");
 }
 
+/// The contract name boxed in `═` at the top of a run.
 fn title(name: &str) {
     let inner = WIDTH - 2;
     let line = "═".repeat(inner);
