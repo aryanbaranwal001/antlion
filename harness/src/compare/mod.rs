@@ -9,7 +9,14 @@ mod size;
 
 use crate::wasm::Contract;
 
-const SECTIONS: [&str; 6] = ["size", "sections", "imports", "interface", "cost", "opcodes"];
+const SECTIONS: [&str; 6] = [
+    "size",
+    "sections",
+    "imports",
+    "interface",
+    "cost",
+    "opcodes",
+];
 const WIDTH: usize = 60;
 
 /// Load both builds of `name` from `out/` and run the requested reports. `args` may

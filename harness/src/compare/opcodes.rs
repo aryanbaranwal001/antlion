@@ -27,8 +27,8 @@ fn default(sdk: &Contract, solang: &Contract) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
 
-    let sdk = feed(&sdk.functions);
-    let solang = feed(&solang.functions);
+    let sdk = feed(sdk.functions());
+    let solang = feed(solang.functions());
 
     let (mut sdk_total, mut solang_total) = (0u64, 0u64);
     for b in BUCKETS {
@@ -51,8 +51,8 @@ fn detail(sdk: &Contract, solang: &Contract) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
 
-    let sdk = feed(&sdk.functions);
-    let solang = feed(&solang.functions);
+    let sdk = feed(sdk.functions());
+    let solang = feed(solang.functions());
 
     let (mut sdk_total, mut solang_total) = (0u64, 0u64);
     for b in BUCKETS {
@@ -68,9 +68,9 @@ fn detail(sdk: &Contract, solang: &Contract) {
         solang_total += l;
 
         for name in opcodes_in(b, &sdk, &solang) {
-            let s = *sdk.get(&name).unwrap_or(&0);
-            let l = *solang.get(&name).unwrap_or(&0);
-            row(&name, s, l, marker(s, l));
+            let s = *sdk.get(name).unwrap_or(&0);
+            let l = *solang.get(name).unwrap_or(&0);
+            row(name, s, l, marker(s, l));
         }
     }
 
@@ -87,7 +87,7 @@ const COL: usize = 44;
 fn dump(sdk: &Contract, solang: &Contract) {
     super::banner("code dump");
 
-    let (sdk, solang) = (&sdk.functions, &solang.functions);
+    let (sdk, solang) = (sdk.functions(), solang.functions());
 
     let sdk_exp = exported(sdk);
     let solang_exp = exported(solang);
@@ -101,7 +101,7 @@ fn dump(sdk: &Contract, solang: &Contract) {
             continue;
         };
         println!("\n────  fn: {name} ──── ");
-        columns(&f.lines, &g.lines);
+        columns(&f.lines(), &g.lines());
     }
 
     for f in sdk {
@@ -110,7 +110,7 @@ fn dump(sdk: &Contract, solang: &Contract) {
             continue;
         }
         println!("\n────  fn: {name} (sdk only) ────");
-        columns(&f.lines, &empty);
+        columns(&f.lines(), &empty);
     }
 
     for f in solang {
@@ -119,7 +119,7 @@ fn dump(sdk: &Contract, solang: &Contract) {
             continue;
         }
         println!("\n──── fn: {name} (solang only) ────");
-        columns(&empty, &f.lines);
+        columns(&empty, &f.lines());
     }
 
     rule("internal functions");
@@ -148,7 +148,7 @@ fn internal_lines(fns: &[code::Function]) -> Vec<String> {
             continue;
         }
         out.push(format!("function #{}", f.index));
-        out.extend(f.lines.iter().cloned());
+        out.extend(f.lines());
         out.push(String::new());
     }
     out
@@ -182,17 +182,18 @@ fn fit(s: &str, w: usize) -> String {
     }
 }
 
-/// Count occurrences of each opcode name across every function body.
-fn feed(fns: &[code::Function]) -> BTreeMap<String, u64> {
+/// Count occurrences of each opcode name across every function body. Keys borrow
+/// from the decoded instruction text — no allocation per instruction.
+fn feed(fns: &[code::Function]) -> BTreeMap<&str, u64> {
     let mut m = BTreeMap::new();
-    for op in fns.iter().flat_map(|f| &f.ops) {
-        *m.entry(op.clone()).or_insert(0) += 1;
+    for op in fns.iter().flat_map(code::Function::ops) {
+        *m.entry(op).or_insert(0) += 1;
     }
     m
 }
 
 /// Total count of every opcode that falls in bucket `b`.
-fn sum_bucket(counts: &BTreeMap<String, u64>, b: &str) -> u64 {
+fn sum_bucket(counts: &BTreeMap<&str, u64>, b: &str) -> u64 {
     counts
         .iter()
         .filter(|(n, _)| bucket(n) == b)
@@ -201,12 +202,16 @@ fn sum_bucket(counts: &BTreeMap<String, u64>, b: &str) -> u64 {
 }
 
 /// Sorted opcode names that fall in bucket `b` and are present on either side.
-fn opcodes_in(b: &str, sdk: &BTreeMap<String, u64>, solang: &BTreeMap<String, u64>) -> Vec<String> {
-    let mut names: Vec<String> = sdk
+fn opcodes_in<'a>(
+    b: &str,
+    sdk: &BTreeMap<&'a str, u64>,
+    solang: &BTreeMap<&'a str, u64>,
+) -> Vec<&'a str> {
+    let mut names: Vec<&str> = sdk
         .keys()
         .chain(solang.keys())
         .filter(|n| bucket(n) == b)
-        .cloned()
+        .copied()
         .collect();
     names.sort();
     names.dedup();
@@ -214,16 +219,16 @@ fn opcodes_in(b: &str, sdk: &BTreeMap<String, u64>, solang: &BTreeMap<String, u6
 }
 
 /// The exact opcodes present on only one side, listed per implementation.
-fn exclusives(sdk: &BTreeMap<String, u64>, solang: &BTreeMap<String, u64>) {
+fn exclusives(sdk: &BTreeMap<&str, u64>, solang: &BTreeMap<&str, u64>) {
     let sdk_only: Vec<&str> = sdk
         .keys()
         .filter(|n| !solang.contains_key(*n))
-        .map(String::as_str)
+        .copied()
         .collect();
     let solang_only: Vec<&str> = solang
         .keys()
         .filter(|n| !sdk.contains_key(*n))
-        .map(String::as_str)
+        .copied()
         .collect();
 
     println!();

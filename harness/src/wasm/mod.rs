@@ -2,6 +2,8 @@ pub mod code;
 pub mod names;
 pub mod spec;
 
+use std::cell::OnceCell;
+
 /// Every view of one built contract, parsed once up front. Reports read from this
 /// instead of re-walking the bytes.
 pub struct Contract<'a> {
@@ -9,14 +11,15 @@ pub struct Contract<'a> {
     pub wasm: &'a [u8],
     /// Section headers in file order, with each payload's offset and length.
     pub sections: Vec<Section>,
-    /// `(module, name)` per host import, in import-section order.
+    /// `(module, name)` per import, in import-section order. Every kind is listed —
+    /// functions, tables, memories and globals — so this is not a function count.
     pub imports: Vec<(String, String)>,
-    /// Locally defined functions in code-section order — imports have no body, so
-    /// these start at function index `imports.len()`.
-    pub functions: Vec<code::Function>,
     /// Function signatures decoded from the `contractspecv0` custom section. Empty
     /// if the module doesn't carry one.
     pub interface: spec::Interface,
+    /// Decoded function bodies — see `functions()`. Only the `opcodes` report needs
+    /// them, so they're decoded on first use rather than in `load`.
+    functions: OnceCell<Vec<code::Function>>,
 }
 
 impl<'a> Contract<'a> {
@@ -25,10 +28,18 @@ impl<'a> Contract<'a> {
         Contract {
             imports: imports(wasm, &sections),
             interface: spec::parse(wasm, &sections),
-            functions: code::functions(wasm),
+            functions: OnceCell::new(),
             sections,
             wasm,
         }
+    }
+
+    /// Locally defined functions in code-section order, decoded on first call and
+    /// cached. Imports have no body, so these start after the *function* imports;
+    /// each carries its own `index`, counted by `code::functions` from the import
+    /// entries of kind func alone.
+    pub fn functions(&self) -> &[code::Function] {
+        self.functions.get_or_init(|| code::functions(self.wasm))
     }
 }
 
@@ -174,11 +185,7 @@ fn read_limits(body: &[u8], j: &mut usize) {
 }
 
 /// Payload of the custom section named `want`, past its name prefix, if present.
-pub fn custom_section<'a>(
-    bytes: &'a [u8],
-    sections: &[Section],
-    want: &str,
-) -> Option<&'a [u8]> {
+pub fn custom_section<'a>(bytes: &'a [u8], sections: &[Section], want: &str) -> Option<&'a [u8]> {
     let s = sections
         .iter()
         .find(|s| s.name.strip_prefix("custom:") == Some(want))?;

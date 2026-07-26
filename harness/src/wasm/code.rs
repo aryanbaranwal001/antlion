@@ -2,14 +2,41 @@
 use std::collections::HashMap;
 use wasmparser::{Parser, Payload};
 
+/// One instruction: its `Debug` text with immediates (`I32Const { value: 4 }`) and the
+/// control-flow nesting it sits at. The opcode name is a slice of `text`, not a
+/// separate allocation.
+pub struct Instr {
+    pub text: String,
+    pub depth: usize,
+}
+
 /// One locally-defined function: its module index, its export name (if exported), its
-/// disassembly lines (the `locals:` line followed by the instruction stream), and the
-/// variant name of each instruction in order (e.g. `I32Load`, `Call`, `End`).
+/// `locals:` line, and its instruction stream.
 pub struct Function {
     pub index: u32,
     pub name: Option<String>,
-    pub lines: Vec<String>,
-    pub ops: Vec<String>,
+    pub locals: String,
+    pub instrs: Vec<Instr>,
+}
+
+impl Function {
+    /// The variant name of each instruction in order (e.g. `I32Load`, `Call`, `End`),
+    /// borrowed from the stored text.
+    pub fn ops(&self) -> impl Iterator<Item = &str> {
+        self.instrs.iter().map(|i| variant(&i.text))
+    }
+
+    /// The disassembly: the `locals:` line, then one indented line per instruction.
+    /// Built on demand — only `--dump` needs it.
+    pub fn lines(&self) -> Vec<String> {
+        let mut out = vec![self.locals.clone()];
+        out.extend(
+            self.instrs
+                .iter()
+                .map(|i| format!("{}{}", "  ".repeat(i.depth), i.text)),
+        );
+        out
+    }
 }
 
 /// Every locally-defined function, in code-section order. The code section stores no
@@ -41,13 +68,11 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
             Ok(Payload::CodeSectionEntry(body)) => {
                 let index = imported_funcs + local_i;
                 local_i += 1;
-                let mut lines = vec![locals_line(&body)];
-                let ops = emit_body(&body, &mut lines);
                 out.push(Function {
                     index,
                     name: names.get(&index).cloned(),
-                    lines,
-                    ops,
+                    locals: locals_line(&body),
+                    instrs: read_body(&body),
                 });
             }
             _ => {}
@@ -75,19 +100,19 @@ fn locals_line(body: &wasmparser::FunctionBody) -> String {
         format!("locals: {}", decls.join(", "))
     }
 }
-/// Push one line per instruction, indenting by control-flow nesting depth.
+/// Read the instruction stream, tagging each with its control-flow nesting depth.
 ///
 /// Of the arms below, only `Block`, `Loop` and `End` occur in our builds — LLVM lowers
 /// branches to `block` + `br_if`, so `If`/`Else` never appear. They're kept for
 /// hand-written wat and non-LLVM toolchains, but are untested here.
 // TODO: remove redundant If / Else
 // TODO: check if all the operators have been taken into account
-fn emit_body(body: &wasmparser::FunctionBody, out: &mut Vec<String>) -> Vec<String> {
+fn read_body(body: &wasmparser::FunctionBody) -> Vec<Instr> {
     let mut reader = body
         .get_operators_reader()
         .expect("malformed function body: no operators reader");
 
-    let mut ops = Vec::new();
+    let mut out = Vec::new();
     let mut depth = 0usize;
 
     while !reader.eof() {
@@ -95,21 +120,21 @@ fn emit_body(body: &wasmparser::FunctionBody, out: &mut Vec<String>) -> Vec<Stri
 
         let text = format!("{op:?}");
         let n = variant(&text);
-        let closes = n == "End" || n == "Else";
+        let is_else = n == "Else";
+        let closes = n == "End" || is_else;
         let opens = matches!(n, "Block" | "Loop" | "If");
 
         if closes {
             depth = depth.saturating_sub(1);
         }
 
-        out.push(format!("{}{text}", "  ".repeat(depth)));
-        ops.push(n.to_string());
+        out.push(Instr { text, depth });
 
-        if opens || n == "Else" {
+        if opens || is_else {
             depth += 1;
         }
     }
-    ops
+    out
 }
 
 /// A value type's spec name.
