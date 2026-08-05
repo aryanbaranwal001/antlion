@@ -5,6 +5,7 @@ members = [
     "contracts/adder/sdk",
     "contracts/parity/sdk",
     "contracts/amm/sdk",
+    "contracts/spectypes/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
