@@ -7,6 +7,7 @@ use std::io::Cursor;
 pub struct FnSpec {
     pub name: String,
     pub inputs: Vec<ScSpecTypeDef>,
+    /// At most one — the XDR bounds `outputs` to length 1.
     pub output: Option<ScSpecTypeDef>,
 }
 
