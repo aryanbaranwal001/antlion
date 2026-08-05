@@ -8,11 +8,11 @@ mod wasm;
 
 fn main() {
     let mut args = env::args().skip(1);
-    let usage =
-        "[err] usage: --build <name> | --compare <name>... --report sections|interface|...|all";
+    let usage = "[err] usage: --build <name> | --compare <name>... --report <report>... | --help";
     let cmd = args.next().expect(usage);
 
     match cmd.as_str() {
+        "--help" => print!("{}", include_str!("../../help.md")),
         "--build" => {
             let name = args.next().expect(usage);
             let out_dir = format!("out/{name}");
