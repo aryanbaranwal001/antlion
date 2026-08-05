@@ -23,8 +23,72 @@ const SECTIONS: [&str; 8] = [
 ];
 const WIDTH: usize = 60;
 
-/// Load both builds of `name` from `out/` and run the requested reports.
-pub fn run(name: &str, args: impl Iterator<Item = String>) {
+/// Run the requested reports over every named contract, in the order given.
+pub fn run(args: &[String]) {
+    let usage = format!(
+        "[err] usage: --compare <name>... --report {}|all [--detail|--dump]",
+        SECTIONS.join("|")
+    );
+
+    let names: Vec<&String> = args.iter().take_while(|a| !a.starts_with("--")).collect();
+    if names.is_empty() {
+        panic!("[err] no contract given\n{usage}");
+    }
+
+    let Some(("--report", rest)) = args[names.len()..]
+        .split_first()
+        .map(|(flag, rest)| (flag.as_str(), rest))
+    else {
+        panic!("[err] no report requested — pass `--report all` for every report\n{usage}");
+    };
+
+    let (mode, reports) = match rest.split_last() {
+        Some((last, elements)) if last == "--detail" || last == "--dump" => {
+            (Some(last.as_str()), elements)
+        }
+        _ => (None, rest),
+    };
+
+    let requested: Vec<&str> = reports.iter().map(String::as_str).collect();
+    if requested.is_empty() {
+        panic!("[err] `--report` needs a report name — pass `all` for every report\n{usage}");
+    }
+
+    let selected: Vec<&str> = if requested.contains(&"all") {
+        SECTIONS.to_vec()
+    } else {
+        requested
+    };
+
+    for name in names {
+        let (sdk_wasm, solang_wasm) = load(name);
+        let sdk = Contract::load(&sdk_wasm);
+        let solang = Contract::load(&solang_wasm);
+
+        title(name);
+
+        for s in &selected {
+            match *s {
+                "size" => size::report(&sdk, &solang),
+                "sections" => section::report(&sdk, &solang),
+                "imports" => imports::report(&sdk, &solang),
+                "interface" => interface::report(&sdk, &solang),
+                "cost" => cost::report(name, &sdk, &solang),
+                "opcodes" => opcodes::report(&sdk, &solang, mode),
+                "functions" => functions::report(&sdk, &solang),
+                "layout" => layout::report(&sdk, &solang),
+
+                other => panic!(
+                    "[err] unknown report `{other}` — pick from: {}, all",
+                    SECTIONS.join(", ")
+                ),
+            }
+        }
+    }
+}
+
+/// Both builds of `name`, read from `out/`.
+fn load(name: &str) -> (Vec<u8>, Vec<u8>) {
     let sdk_path = format!("out/{name}/sdk.wasm");
     let solang_path = format!("out/{name}/solang.wasm");
 
@@ -34,49 +98,10 @@ pub fn run(name: &str, args: impl Iterator<Item = String>) {
         );
     }
 
-    let sdk_wasm = fs::read(&sdk_path).expect("[err] failed to read sdk.wasm");
-    let solang_wasm = fs::read(&solang_path).expect("[err] failed to read solang.wasm");
-
-    let sdk = Contract::load(&sdk_wasm);
-    let solang = Contract::load(&solang_wasm);
-
-    title(name);
-
-    let mut args = args.peekable();
-    let mut requested: Vec<String> = Vec::new();
-    if matches!(args.peek().map(String::as_str), Some("--report")) {
-        args.next();
-        while let Some(a) = args.peek() {
-            if a.starts_with("--") {
-                break;
-            }
-            requested.push(args.next().unwrap());
-        }
-    }
-
-    let selected: Vec<&str> = if requested.is_empty() || requested.iter().any(|s| s == "all") {
-        SECTIONS.to_vec()
-    } else {
-        requested.iter().map(String::as_str).collect()
-    };
-
-    for s in selected {
-        match s {
-            "size" => size::report(&sdk, &solang),
-            "sections" => section::report(&sdk, &solang),
-            "imports" => imports::report(&sdk, &solang),
-            "interface" => interface::report(&sdk, &solang),
-            "cost" => cost::report(name, &sdk, &solang),
-            "opcodes" => opcodes::report(&sdk, &solang, &mut args),
-            "functions" => functions::report(&sdk, &solang),
-            "layout" => layout::report(&sdk, &solang),
-
-            other => panic!(
-                "[err] unknown report `{other}` — pick from: {}, all",
-                SECTIONS.join(", ")
-            ),
-        }
-    }
+    (
+        fs::read(&sdk_path).expect("[err] failed to read sdk.wasm"),
+        fs::read(&solang_path).expect("[err] failed to read solang.wasm"),
+    )
 }
 
 /// Format a difference with an explicit sign, e.g. `+12` / `-3`.

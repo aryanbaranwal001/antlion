@@ -13,8 +13,8 @@ const BUCKETS: [&str; 8] = [
 ];
 
 /// Dispatch on the trailing flag: `--detail`, `--dump`, or the bucket totals.
-pub fn report(sdk: &Contract, solang: &Contract, args: &mut impl Iterator<Item = String>) {
-    match args.next().as_deref() {
+pub fn report(sdk: &Contract, solang: &Contract, mode: Option<&str>) {
+    match mode {
         Some("--detail") => detail(sdk, solang),
         Some("--dump") => dump(sdk, solang),
         _ => default(sdk, solang),
