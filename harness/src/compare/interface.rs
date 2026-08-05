@@ -3,13 +3,29 @@ use crate::wasm::{Contract, spec};
 /// Each function's signature on both sides.
 pub fn report(sdk: &Contract, solang: &Contract) {
     super::banner("contract interface");
-    println!("{:<40} {:<40}", "sdk", "solang\n");
 
-    for fname in fn_names(sdk, solang) {
-        let s = sig_for(sdk, &fname);
-        let l = sig_for(solang, &fname);
-        println!("{s:<40} {l:<40}");
+    let rows: Vec<(String, String)> = fn_names(sdk, solang)
+        .into_iter()
+        .map(|f| (sig_for(sdk, &f), sig_for(solang, &f)))
+        .collect();
+
+    // Type-heavy signatures run well past any fixed width, so the column is sized to
+    // what it holds.
+    let w = rows
+        .iter()
+        .map(|(s, _)| s.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    println!("{:<w$}  {}\n", "sdk", "solang");
+
+    for (s, l) in rows {
+        println!("{s:<w$}  {l}");
     }
+
+    println!();
+    println!("note: these are the soroban types, read from contractspecv0");
+    println!("note: in wasm itself every one of them is an i64 — a tagged Val");
     println!();
 }
 
