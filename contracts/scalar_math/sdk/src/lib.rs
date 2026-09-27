@@ -11,9 +11,8 @@ pub struct ScalarMath;
 /// `bool` has no addition, so it gets the nearest thing — it is its own baseline, not a
 /// row to line up against the numerics.
 ///
-/// Both sides are written the idiomatic way, which is not the same semantics: solidity
-/// 0.8 traps on overflow, rust wraps unless `overflow-checks` is on, and this workspace
-/// does not set it.
+/// Both sides trap on overflow: solidity 0.8 by default, rust because the workspace
+/// release profile sets `overflow-checks = true`.
 #[contractimpl]
 impl ScalarMath {
     pub fn bool_op(a: bool, b: bool) -> bool {
