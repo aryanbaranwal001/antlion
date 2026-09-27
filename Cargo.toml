@@ -8,3 +8,16 @@ resolver = "2"
 
 [workspace.dependencies]
 soroban-sdk = "27"
+
+# The standard soroban contract release profile. Without it the sdk builds carry
+# debug symbols, no LTO and wrapping arithmetic — none of which is what a real
+# contract ships, so the comparison against solang would not be fair.
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
