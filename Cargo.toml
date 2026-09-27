@@ -5,6 +5,7 @@ members = [
     "contracts/scalar_id/sdk",
     "contracts/scalar_math/sdk",
     "contracts/scalar_store/sdk",
+    "contracts/storage/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
