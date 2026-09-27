@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "harness",
+    "contracts/baseline/sdk",
     "contracts/scalar_id/sdk",
     "contracts/scalar_math/sdk",
 ]

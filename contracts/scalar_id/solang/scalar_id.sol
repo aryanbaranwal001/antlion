@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.0;
 
-/// One identity function per scalar type. The body is a no-op on purpose: what is
-/// measured here is the boundary — decoding the `i64` Val into a native value and
-/// encoding it back — with no arithmetic or storage mixed in.
+/// Identity only — measures decoding the `i64` Val and encoding it back, nothing else.
+/// `_id` takes one argument, `_id2` takes two and returns the first; `_id2` is what
+/// `scalar_math` subtracts to isolate the arithmetic.
 ///
-/// Functions are named after the rust type, not the solidity one, so both builds
-/// pair by name in the reports.
+/// Functions are named after the rust type so both builds pair by name.
 contract Scalar_id {
     function bool_id(bool a) public pure returns (bool) {
         return a;
@@ -33,6 +32,34 @@ contract Scalar_id {
     }
 
     function i128_id(int128 a) public pure returns (int128) {
+        return a;
+    }
+
+    function bool_id2(bool a, bool b) public pure returns (bool) {
+        return a;
+    }
+
+    function u32_id2(uint32 a, uint32 b) public pure returns (uint32) {
+        return a;
+    }
+
+    function i32_id2(int32 a, int32 b) public pure returns (int32) {
+        return a;
+    }
+
+    function u64_id2(uint64 a, uint64 b) public pure returns (uint64) {
+        return a;
+    }
+
+    function i64_id2(int64 a, int64 b) public pure returns (int64) {
+        return a;
+    }
+
+    function u128_id2(uint128 a, uint128 b) public pure returns (uint128) {
+        return a;
+    }
+
+    function i128_id2(int128 a, int128 b) public pure returns (int128) {
         return a;
     }
 }

@@ -1,12 +1,13 @@
 #![no_std]
+#![allow(unused_variables)]
 use soroban_sdk::{contract, contractimpl};
 
 #[contract]
 pub struct ScalarId;
 
-/// One identity function per scalar type. The body is a no-op on purpose: what is
-/// measured here is the boundary — decoding the `i64` Val into a native value and
-/// encoding it back — with no arithmetic or storage mixed in.
+/// Identity only — measures decoding the `i64` Val and encoding it back, nothing else.
+/// `_id` takes one argument, `_id2` takes two and returns the first; `_id2` is what
+/// `scalar_math` subtracts to isolate the arithmetic.
 #[contractimpl]
 impl ScalarId {
     pub fn bool_id(a: bool) -> bool {
@@ -34,6 +35,34 @@ impl ScalarId {
     }
 
     pub fn i128_id(a: i128) -> i128 {
+        a
+    }
+
+    pub fn bool_id2(a: bool, b: bool) -> bool {
+        a
+    }
+
+    pub fn u32_id2(a: u32, b: u32) -> u32 {
+        a
+    }
+
+    pub fn i32_id2(a: i32, b: i32) -> i32 {
+        a
+    }
+
+    pub fn u64_id2(a: u64, b: u64) -> u64 {
+        a
+    }
+
+    pub fn i64_id2(a: i64, b: i64) -> i64 {
+        a
+    }
+
+    pub fn u128_id2(a: u128, b: u128) -> u128 {
+        a
+    }
+
+    pub fn i128_id2(a: i128, b: i128) -> i128 {
         a
     }
 }
