@@ -6,12 +6,13 @@ members = [
     "contracts/scalar_math/sdk",
     "contracts/scalar_store/sdk",
     "contracts/storage/sdk",
+    "contracts/flow/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
 
 [workspace.dependencies]
-soroban-sdk = "27"
+soroban-sdk = "28"
 
 # The standard soroban contract release profile. Without it the sdk builds carry
 # debug symbols, no LTO and wrapping arithmetic — none of which is what a real

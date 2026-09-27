@@ -9,5 +9,5 @@ name = "antlion"
 path = "src/main.rs"
 
 [dependencies]
-soroban-env-host = { version = "27", features = ["testutils"] }
+soroban-env-host = { version = "28", features = ["testutils"] }
 wasmparser = "0.116"
