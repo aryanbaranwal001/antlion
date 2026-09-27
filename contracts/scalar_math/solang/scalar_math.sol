@@ -1,17 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.0;
 
-/// One operation per scalar type, the same operation on every numeric type, so the rows
-/// compare to each other. `scalar_id` measures the boundary; the difference between the
-/// two contracts is what the arithmetic itself costs.
+/// One add per numeric type, `&&` for bool; both sides trap on overflow. Subtract
+/// `scalar_id`'s `_id2` rows to isolate the arithmetic from the boundary.
 ///
-/// `bool` has no addition, so it gets the nearest thing — it is its own baseline, not a
-/// row to line up against the numerics.
-///
-/// Both sides trap on overflow: solidity 0.8 by default, rust because the workspace
-/// release profile sets `overflow-checks = true`.
-///
-/// Functions are named after the rust type so both builds pair by name in the reports.
+/// Functions are named after the rust type so both builds pair by name.
 contract Scalar_math {
     function bool_op(bool a, bool b) public pure returns (bool) {
         return a && b;
