@@ -4,6 +4,8 @@ pragma solidity ^0.8.0;
 /// One add per numeric type, `&&` for bool; both sides trap on overflow. Subtract
 /// `scalar_id`'s `_id2` rows to isolate the arithmetic from the boundary.
 ///
+/// No `address` row: solang has no operation on one — `==` and `!=` both crash it.
+///
 /// Functions are named after the rust type so both builds pair by name.
 contract Scalar_math {
     function bool_op(bool a, bool b) public pure returns (bool) {

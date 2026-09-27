@@ -1,6 +1,6 @@
 #![no_std]
 #![allow(unused_variables)]
-use soroban_sdk::{contract, contractimpl};
+use soroban_sdk::{Address, contract, contractimpl};
 
 #[contract]
 pub struct ScalarId;
@@ -38,6 +38,10 @@ impl ScalarId {
         a
     }
 
+    pub fn address_id(a: Address) -> Address {
+        a
+    }
+
     pub fn bool_id2(a: bool, b: bool) -> bool {
         a
     }
@@ -63,6 +67,10 @@ impl ScalarId {
     }
 
     pub fn i128_id2(a: i128, b: i128) -> i128 {
+        a
+    }
+
+    pub fn address_id2(a: Address, b: Address) -> Address {
         a
     }
 }

@@ -35,6 +35,10 @@ contract Scalar_id {
         return a;
     }
 
+    function address_id(address a) public pure returns (address) {
+        return a;
+    }
+
     function bool_id2(bool a, bool b) public pure returns (bool) {
         return a;
     }
@@ -60,6 +64,10 @@ contract Scalar_id {
     }
 
     function i128_id2(int128 a, int128 b) public pure returns (int128) {
+        return a;
+    }
+
+    function address_id2(address a, address b) public pure returns (address) {
         return a;
     }
 }

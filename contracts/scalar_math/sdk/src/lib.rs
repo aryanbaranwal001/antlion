@@ -6,6 +6,8 @@ pub struct ScalarMath;
 
 /// One add per numeric type, `&&` for bool; both sides trap on overflow. Subtract
 /// `scalar_id`'s `_id2` rows to isolate the arithmetic from the boundary.
+///
+/// No `address` row: solang has no operation on one — `==` and `!=` both crash it.
 #[contractimpl]
 impl ScalarMath {
     pub fn bool_op(a: bool, b: bool) -> bool {
