@@ -40,7 +40,7 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
             continue;
         }
 
-        for kind in [spec::Inputs::Small, spec::Inputs::Edge] {
+        for kind in spec::ALL_INPUTS {
             let s = invoke(sdk.wasm, &f.name, &f.inputs, kind);
             let l = invoke(solang.wasm, &f.name, &f.inputs, kind);
 
