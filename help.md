@@ -25,6 +25,7 @@ REPORTS
     sections    per-section byte breakdown
     imports     which host functions each side imports
     interface   every exported function's signature
+    returns     what each function answers, side by side
     cost        metered cost of calling each function, on a fresh host
     opcodes     opcode histogram, bucketed by kind
     functions   per-function size and complexity
@@ -33,14 +34,15 @@ REPORTS
 
 CONTRACTS
 
-    adder   amm   counter   parity
+    baseline   scalar_id   scalar_math   scalar_store   storage
+    flow   struct_store   struct_mem   vec_mem
 
 EXAMPLES
 
-    cargo run -- --build amm
-    cargo run -- --compare amm --report all
-    cargo run -- --compare amm counter adder --report size cost
-    cargo run -- --compare amm --report opcodes --dump
+    cargo run -- --build scalar_id
+    cargo run -- --compare scalar_id --report all
+    cargo run -- --compare scalar_id scalar_math --report size returns
+    cargo run -- --compare flow --report opcodes --dump
 
 NOTES
 
