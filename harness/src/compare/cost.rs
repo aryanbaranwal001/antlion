@@ -1,6 +1,7 @@
 use soroban_env_host::{
-    Env, EnvBase, Host, HostError, Symbol, Val,
+    Env, EnvBase, Host, HostError, Symbol,
     testutils::{generate_account_id, generate_bytes_array},
+    xdr::ScSpecTypeDef,
 };
 
 use crate::wasm::{Contract, spec};
@@ -22,15 +23,15 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     }
 
     for f in &sdk.interface.funcs {
-        let Some(args) = spec::synth_args(&f.inputs) else {
+        if !spec::args_supported(&f.inputs) {
             println!("[skip] {} — unsupported arg types", spec::sig(f));
             continue;
-        };
+        }
 
         println!("{}\n", spec::sig(f));
 
-        let s = measure(sdk.wasm, &f.name, &args);
-        let l = measure(solang.wasm, &f.name, &args);
+        let s = measure(sdk.wasm, &f.name, &f.inputs);
+        let l = measure(solang.wasm, &f.name, &f.inputs);
 
         if let Err(e) = &s {
             println!("[err] sdk invoke failed: {e:?}");
@@ -52,15 +53,21 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// Deploy `wasm`, call `func(args)`, and return what the call alone consumed.
-fn measure(wasm: &[u8], func: &str, args: &[Val]) -> Result<Cost, HostError> {
+/// Deploy `wasm`, call `func` with synthesized arguments, and return what the call alone
+/// consumed.
+///
+/// Arguments are built here rather than passed in, because object handles belong to one
+/// host's object table and each side gets its own host.
+fn measure(wasm: &[u8], func: &str, inputs: &[ScSpecTypeDef]) -> Result<Cost, HostError> {
     let host = Host::test_host_with_recording_footprint();
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
 
+    let args = spec::build_args(&host, contract.to_val(), inputs)?;
+
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
-    let argv = host.vec_new_from_slice(args)?;
+    let argv = host.vec_new_from_slice(&args)?;
 
     let budget = host.budget_cloned();
     let base_cpu = budget.get_cpu_insns_consumed()?;

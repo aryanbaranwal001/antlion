@@ -1,5 +1,5 @@
 use soroban_env_host::{
-    I64Val, U64Val, Val,
+    Env, EnvBase, Host, HostError, I64Val, U64Val, Val,
     xdr::{Limited, Limits, ReadXdr, ScSpecEntry, ScSpecTypeDef},
 };
 use std::io::Cursor;
@@ -51,21 +51,63 @@ pub fn sig(f: &FnSpec) -> String {
     }
 }
 
-/// A concrete argument `Val` per input type. `None` if any type is unsupported.
-pub fn synth_args(inputs: &[ScSpecTypeDef]) -> Option<Vec<Val>> {
-    inputs.iter().map(arg_val).collect()
+/// Whether every input type can be synthesized.
+pub fn args_supported(inputs: &[ScSpecTypeDef]) -> bool {
+    inputs.iter().all(supported)
 }
 
-/// A stand-in value for one input type. `None` if we can't build that type.
-fn arg_val(t: &ScSpecTypeDef) -> Option<Val> {
+fn supported(t: &ScSpecTypeDef) -> bool {
     use ScSpecTypeDef as St;
-    Some(match t {
+    matches!(
+        t,
+        St::Bool
+            | St::Void
+            | St::U32
+            | St::I32
+            | St::U64
+            | St::I64
+            | St::Timepoint
+            | St::Duration
+            | St::U128
+            | St::I128
+            | St::Bytes
+            | St::String
+            | St::Symbol
+            | St::Address
+            | St::BytesN(_)
+    )
+}
+
+/// A concrete argument `Val` per input type.
+///
+/// Object types (`u128`, `bytes`, `string`, `address`, …) are handles into one host's
+/// object table, so they have to be built against the host that will run the call.
+/// `self_addr` is the contract's own address, used wherever an `address` is wanted.
+pub fn build_args(
+    host: &Host,
+    self_addr: Val,
+    inputs: &[ScSpecTypeDef],
+) -> Result<Vec<Val>, HostError> {
+    inputs.iter().map(|t| arg_val(host, self_addr, t)).collect()
+}
+
+fn arg_val(host: &Host, self_addr: Val, t: &ScSpecTypeDef) -> Result<Val, HostError> {
+    use ScSpecTypeDef as St;
+    Ok(match t {
         St::Bool => Val::from_bool(true).to_val(),
+        St::Void => Val::VOID.to_val(),
         St::U32 => Val::from_u32(1).to_val(),
         St::I32 => Val::from_i32(1).to_val(),
-        St::U64 => U64Val::from_u32(1).to_val(),
+        St::U64 | St::Timepoint | St::Duration => U64Val::from_u32(1).to_val(),
         St::I64 => I64Val::from_i32(1).to_val(),
-        _ => return None,
+        St::U128 => host.obj_from_u128_pieces(0, 1)?.to_val(),
+        St::I128 => host.obj_from_i128_pieces(0, 1)?.to_val(),
+        St::Bytes => host.bytes_new_from_slice(&[1, 2, 3, 4])?.to_val(),
+        St::BytesN(n) => host.bytes_new_from_slice(&vec![1u8; n.n as usize])?.to_val(),
+        St::String => host.string_new_from_slice(b"antlion")?.to_val(),
+        St::Symbol => host.symbol_new_from_slice(b"sym")?.to_val(),
+        St::Address => self_addr,
+        other => unreachable!("[err] arg_val called on unsupported type {other:?}"),
     })
 }
 
