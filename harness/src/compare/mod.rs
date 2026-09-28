@@ -6,16 +6,18 @@ mod imports;
 mod interface;
 mod layout;
 mod opcodes;
+mod returns;
 mod section;
 mod size;
 
 use crate::wasm::Contract;
 
-const SECTIONS: [&str; 8] = [
+const SECTIONS: [&str; 9] = [
     "size",
     "sections",
     "imports",
     "interface",
+    "returns",
     "cost",
     "opcodes",
     "functions",
@@ -73,6 +75,7 @@ pub fn run(args: &[String]) {
                 "sections" => section::report(&sdk, &solang),
                 "imports" => imports::report(&sdk, &solang),
                 "interface" => interface::report(&sdk, &solang),
+                "returns" => returns::report(name, &sdk, &solang),
                 "cost" => cost::report(name, &sdk, &solang),
                 "opcodes" => opcodes::report(&sdk, &solang, mode),
                 "functions" => functions::report(&sdk, &solang),
