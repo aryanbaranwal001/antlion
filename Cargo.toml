@@ -8,6 +8,7 @@ members = [
     "contracts/storage/sdk",
     "contracts/flow/sdk",
     "contracts/struct_store/sdk",
+    "contracts/struct_mem/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
