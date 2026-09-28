@@ -3,9 +3,9 @@ the Rust soroban-sdk, and Solidity through Solang.
 
 USAGE
 
-    cargo run -- --build <contract>
-    cargo run -- --compare <name>... --report <report>... [--detail | --dump]
-    cargo run -- --help
+    antlion --build <contract>
+    antlion --compare <name>... --report <report>... [--detail | --dump]
+    antlion --help
 
 COMMANDS
 
@@ -45,11 +45,11 @@ BUNDLED CONTRACTS
 
 EXAMPLES
 
-    cargo run -- --build contracts/scalar_id
-    cargo run -- --build ../elsewhere/pairs/mypair
-    cargo run -- --compare scalar_id --report all
-    cargo run -- --compare scalar_id scalar_math --report size returns
-    cargo run -- --compare flow --report opcodes --dump
+    antlion --build contracts/scalar_id
+    antlion --build ../elsewhere/pairs/mypair
+    antlion --compare scalar_id --report all
+    antlion --compare scalar_id scalar_math --report size returns
+    antlion --compare flow --report opcodes --dump
 
 NOTES
 
