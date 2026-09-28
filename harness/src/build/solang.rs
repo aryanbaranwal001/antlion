@@ -1,33 +1,24 @@
-use std::{fs, process::Command};
+use std::{fs, path::Path, process::Command};
 
-/// Compile the solidity contract to `out/<name>/solang.wasm`.
-pub fn build(name: &str, out_dir: &str) {
+/// Compile `<dir>/solang/<name>.sol` to `<out_dir>/solang.wasm`.
+pub fn build(dir: &Path, name: &str, out_dir: &str) {
+    let src = super::sol_of(dir, name);
+
     let status = Command::new("solang")
-        .args([
-            "compile",
-            "--target",
-            "soroban",
-            "--output",
-            out_dir,
-            &format!("contracts/{name}/solang/{name}.sol"),
-        ])
+        .args(["compile", "--target", "soroban", "--output", out_dir])
+        .arg(&src)
         .status()
         .expect("[err] failed to run solang");
 
     assert!(status.success(), "[err] solang compile failed");
 
-    let capitalized = {
-        let mut c = name.chars();
-        match c.next() {
-            Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            None => unreachable!("[err] name was already validated to exist"),
+    // solang writes an abi beside the wasm, named after the contract rather than the file.
+    for entry in fs::read_dir(out_dir).expect("[err] failed to read the output directory") {
+        let path = entry.expect("[err] failed to read a directory entry").path();
+        if path.extension().is_some_and(|e| e == "abi") {
+            fs::remove_file(&path).expect("[err] failed to remove abi");
         }
-    };
+    }
 
-    fs::remove_file(format!("{out_dir}/{capitalized}.abi")).expect("[err] failed to remove abi");
-    fs::rename(
-        format!("{out_dir}/{capitalized}.wasm"),
-        format!("{out_dir}/solang.wasm"),
-    )
-    .expect("[err] failed to rename solang wasm");
+    super::take_wasm(out_dir, "solang.wasm");
 }

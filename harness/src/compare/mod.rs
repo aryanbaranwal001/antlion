@@ -96,9 +96,7 @@ fn load(name: &str) -> (Vec<u8>, Vec<u8>) {
     let solang_path = format!("out/{name}/solang.wasm");
 
     if !Path::new(&sdk_path).exists() || !Path::new(&solang_path).exists() {
-        panic!(
-            "[err] no build for `{name}` in out/{name}/\n[err] run `cargo run -- --build {name}` first"
-        );
+        panic!("[err] no build for `{name}` in out/{name}/");
     }
 
     (
