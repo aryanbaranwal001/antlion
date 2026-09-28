@@ -23,7 +23,7 @@ const SECTIONS: [&str; 9] = [
     "functions",
     "layout",
 ];
-const WIDTH: usize = 60;
+const WIDTH: usize = 90;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &[String]) {

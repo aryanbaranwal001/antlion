@@ -19,7 +19,7 @@ fn main() {
             let dir = build::dir_of(&arg);
             let name = build::name_of(&arg);
             let out_dir = format!("out/{name}");
-            fs::create_dir_all(&out_dir).unwrap();
+            fs::create_dir_all(&out_dir).expect("[err] failed to create the output directory");
 
             build::sdk::build(&dir, &out_dir);
             build::solang::build(&dir, &name, &out_dir);

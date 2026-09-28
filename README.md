@@ -23,23 +23,62 @@ Findings are in [findings.md](findings.md). A written assessment is in
 Versions this was last run against: solang v0.3.5, soroban-sdk 28.0.0, stellar-cli 26.0.0,
 rustc 1.92.0.
 
-## Layout
+## How a contract pair must be arranged
+
+A contract pair is a directory holding both implementations:
 
 ```
-contracts/<name>/sdk/      rust soroban-sdk contract
-contracts/<name>/solang/   solidity contract
-
-out/<name>/{sdk,solang}.wasm   build output the harness compares
+<pair>/
+  sdk/
+    Cargo.toml        a cdylib crate depending on soroban-sdk
+    src/lib.rs
+  solang/
+    <pair>.sol        named after the directory
 ```
 
-Both sides must export the same function names. That is what lets the reports pair rows.
+Three rules, and only three.
+
+1. **The two subdirectories are named `sdk` and `solang`.**
+2. **The solidity file is named after its directory.** `contracts/flow` holds
+   `contracts/flow/solang/flow.sol`. The crate name in `sdk/Cargo.toml` and the contract
+   name inside the `.sol` are both free, only the filename is fixed.
+3. **Both sides export the same function names.** This is the one that matters. The reports
+   pair rows by name, so a function present on one side only is reported as unpaired rather
+   than compared.
+
+Build output goes to `out/<pair>/sdk.wasm` and `out/<pair>/solang.wasm`, where `<pair>` is
+the last component of the directory you passed.
+
+A crate outside this repository's workspace needs its own `[profile.release]`, otherwise
+it is built with rust defaults and the size comparison measures the build configuration
+instead of the compilers. See [Build profile](#build-profile) below.
 
 ## Run
 
 ```
-cargo run -- --build <name>
-cargo run -- --compare <name>... --report <report>... [--detail | --dump]
+cargo run -- --build <contract>
+cargo run -- --compare <contract>... --report <report>... [--detail | --dump]
 cargo run -- --help
+```
+
+`--build` takes a path to the pair directory, relative to the working directory unless
+absolute. There is no fallback: a bare `flow` means `./flow`, not `contracts/flow`.
+
+| Argument | Builds from | Into |
+|---|---|---|
+| `contracts/flow` | `./contracts/flow` | `out/flow/` |
+| `flow` | `./flow` | `out/flow/` |
+| `../elsewhere/pairs/flow` | that path | `out/flow/` |
+| `/abs/path/to/flow` | that path | `out/flow/` |
+
+The bundled pairs under `contracts/` are reached exactly like any other tree, so the tool
+is not tied to this repository.
+
+`--compare` takes the name, and reads `out/<name>/`:
+
+```
+cargo run -- --build contracts/scalar_id
+cargo run -- --compare scalar_id --report all
 ```
 
 Reports:
@@ -63,7 +102,7 @@ Contracts: `baseline`, `scalar_id`, `scalar_math`, `scalar_store`, `storage`, `f
 ## Example
 
 ```
-cargo run -- --build scalar_id
+cargo run -- --build contracts/scalar_id
 cargo run -- --compare scalar_id --report returns
 ```
 
