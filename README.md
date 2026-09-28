@@ -6,6 +6,8 @@ Takes a contract written twice, once in Rust against `soroban-sdk` and once in S
 compiles both to Soroban WebAssembly, and reports where the two artifacts differ in size,
 structure, cost and behaviour.
 
+See [user_manual](user_manual.md) for more information.
+
 ## Prerequisites
 
 | Requirement | Minimum version |
