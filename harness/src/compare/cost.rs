@@ -64,7 +64,7 @@ fn measure(wasm: &[u8], func: &str, inputs: &[ScSpecTypeDef]) -> Result<Cost, Ho
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
 
-    let args = spec::build_args(&host, contract.to_val(), inputs)?;
+    let args = spec::build_args(&host, contract.to_val(), inputs, spec::Inputs::Small)?;
 
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
     let argv = host.vec_new_from_slice(&args)?;

@@ -6,11 +6,16 @@ use soroban_env_host::{
 
 use crate::wasm::{Contract, spec};
 
-const NAME: usize = 16;
-const VALUE: usize = 26;
+const NAME: usize = 15;
+const KIND: usize = 6;
+const VALUE: usize = 24;
 
 /// Invoke every function on both builds and compare what each one answers. Cost says how
 /// much the two spent; this says whether they agree.
+///
+/// Each function runs twice. `small` uses values that ride inline in the `Val` word;
+/// `edge` uses boundary values, including 64 and 128 bit numbers too large for the 56 bit
+/// payload, which the host therefore passes as object handles.
 pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     super::banner("return value equivalence");
 
@@ -21,10 +26,10 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     }
 
     println!(
-        "{:<NAME$} {:<VALUE$} {:<VALUE$} {}",
-        "function", "sdk", "solang", "verdict"
+        "{:<NAME$} {:<KIND$} {:<VALUE$} {:<VALUE$} {}",
+        "function", "input", "sdk", "solang", "verdict"
     );
-    println!("{}", "─".repeat(NAME + VALUE * 2 + 10));
+    println!("{}", "─".repeat(NAME + KIND + VALUE * 2 + 10));
 
     let mut differ = 0;
     let mut checked = 0;
@@ -35,46 +40,61 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
             continue;
         }
 
-        let s = invoke(sdk.wasm, &f.name, &f.inputs);
-        let l = invoke(solang.wasm, &f.name, &f.inputs);
+        for kind in [spec::Inputs::Small, spec::Inputs::Edge] {
+            let s = invoke(sdk.wasm, &f.name, &f.inputs, kind);
+            let l = invoke(solang.wasm, &f.name, &f.inputs, kind);
 
-        let verdict = match (&s, &l) {
-            (Ok(a), Ok(b)) => {
-                checked += 1;
-                if a == b {
-                    "same"
-                } else {
-                    differ += 1;
-                    "DIFFER"
+            let verdict = match (&s, &l) {
+                (Ok(a), Ok(b)) => {
+                    checked += 1;
+                    if a == b {
+                        "same"
+                    } else {
+                        differ += 1;
+                        "DIFFER"
+                    }
                 }
-            }
-            (Err(_), Err(_)) => "both failed",
-            (Err(_), Ok(_)) => "sdk failed",
-            (Ok(_), Err(_)) => "solang failed",
-        };
+                (Err(_), Err(_)) => "both failed",
+                (Err(_), Ok(_)) => "sdk failed",
+                (Ok(_), Err(_)) => "solang failed",
+            };
 
-        println!(
-            "{:<NAME$} {:<VALUE$} {:<VALUE$} {}",
-            f.name,
-            show(&s),
-            show(&l),
-            verdict
-        );
+            println!(
+                "{:<NAME$} {:<KIND$} {:<VALUE$} {:<VALUE$} {}",
+                f.name,
+                kind.label(),
+                show(&s),
+                show(&l),
+                verdict
+            );
+
+            // A truncated column is fine when the two agree. When they do not, the
+            // difference is the whole point, so print both in full.
+            if verdict == "DIFFER" {
+                println!("{:>NAME$}   sdk    {}", "", full(&s));
+                println!("{:>NAME$}   solang {}", "", full(&l));
+            }
+        }
     }
 
     println!();
-    println!("note: {checked} function(s) ran on both sides, {differ} disagreed");
+    println!("note: {checked} call(s) ran on both sides, {differ} disagreed");
     println!();
 }
 
 /// Deploy `wasm`, call `func` with synthesized arguments, and return what it answered.
-fn invoke(wasm: &[u8], func: &str, inputs: &[ScSpecTypeDef]) -> Result<ScVal, HostError> {
+fn invoke(
+    wasm: &[u8],
+    func: &str,
+    inputs: &[ScSpecTypeDef],
+    kind: spec::Inputs,
+) -> Result<ScVal, HostError> {
     let host = Host::test_host_with_recording_footprint();
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
 
-    let args = spec::build_args(&host, contract.to_val(), inputs)?;
+    let args = spec::build_args(&host, contract.to_val(), inputs, kind)?;
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
     let argv = host.vec_new_from_slice(&args)?;
 
@@ -82,14 +102,18 @@ fn invoke(wasm: &[u8], func: &str, inputs: &[ScSpecTypeDef]) -> Result<ScVal, Ho
     Ok(ScVal::try_from_val(&host, &out)?)
 }
 
-/// One value, trimmed to fit its column.
-fn show(v: &Result<ScVal, HostError>) -> String {
+/// One value, on a single line.
+fn full(v: &Result<ScVal, HostError>) -> String {
     let text = match v {
         Ok(val) => format!("{val:?}"),
         Err(e) => format!("[err] {e:?}"),
     };
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
-    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+/// One value, trimmed to fit its column.
+fn show(v: &Result<ScVal, HostError>) -> String {
+    let flat = full(v);
     if flat.chars().count() > VALUE - 1 {
         format!("{}…", flat.chars().take(VALUE - 2).collect::<String>())
     } else {

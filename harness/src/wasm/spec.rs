@@ -78,6 +78,25 @@ fn supported(t: &ScSpecTypeDef) -> bool {
     )
 }
 
+/// Which set of argument values to build.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Inputs {
+    /// Small values that ride inline in the `Val` word.
+    Small,
+    /// Boundary values. The 64 and 128 bit ones are deliberately too large for the
+    /// 56 bit payload, so the host passes an object handle instead of an inline number.
+    Edge,
+}
+
+impl Inputs {
+    pub fn label(self) -> &'static str {
+        match self {
+            Inputs::Small => "small",
+            Inputs::Edge => "edge",
+        }
+    }
+}
+
 /// A concrete argument `Val` per input type.
 ///
 /// Object types (`u128`, `bytes`, `string`, `address`, …) are handles into one host's
@@ -87,25 +106,54 @@ pub fn build_args(
     host: &Host,
     self_addr: Val,
     inputs: &[ScSpecTypeDef],
+    kind: Inputs,
 ) -> Result<Vec<Val>, HostError> {
-    inputs.iter().map(|t| arg_val(host, self_addr, t)).collect()
+    inputs
+        .iter()
+        .map(|t| arg_val(host, self_addr, t, kind))
+        .collect()
 }
 
-fn arg_val(host: &Host, self_addr: Val, t: &ScSpecTypeDef) -> Result<Val, HostError> {
+fn arg_val(
+    host: &Host,
+    self_addr: Val,
+    t: &ScSpecTypeDef,
+    kind: Inputs,
+) -> Result<Val, HostError> {
     use ScSpecTypeDef as St;
+    let edge = kind == Inputs::Edge;
+
     Ok(match t {
-        St::Bool => Val::from_bool(true).to_val(),
+        St::Bool => Val::from_bool(!edge).to_val(),
         St::Void => Val::VOID.to_val(),
+        St::U32 if edge => Val::from_u32(u32::MAX).to_val(),
         St::U32 => Val::from_u32(1).to_val(),
+        St::I32 if edge => Val::from_i32(i32::MIN).to_val(),
         St::I32 => Val::from_i32(1).to_val(),
+
+        // Past 2^56 a 64 bit number no longer fits the payload, so it arrives as an
+        // object handle rather than inline. That is the case solang has no path for.
+        St::U64 | St::Timepoint | St::Duration if edge => {
+            host.obj_from_u64(1u64 << 60)?.to_val()
+        }
         St::U64 | St::Timepoint | St::Duration => U64Val::from_u32(1).to_val(),
+        St::I64 if edge => host.obj_from_i64(1i64 << 60)?.to_val(),
         St::I64 => I64Val::from_i32(1).to_val(),
+
+        St::U128 if edge => host.obj_from_u128_pieces(7, 5)?.to_val(),
         St::U128 => host.obj_from_u128_pieces(0, 1)?.to_val(),
+        St::I128 if edge => host.obj_from_i128_pieces(7, 5)?.to_val(),
         St::I128 => host.obj_from_i128_pieces(0, 1)?.to_val(),
+
+        St::Bytes if edge => host.bytes_new_from_slice(&[0xff; 64])?.to_val(),
         St::Bytes => host.bytes_new_from_slice(&[1, 2, 3, 4])?.to_val(),
+        St::BytesN(n) if edge => host.bytes_new_from_slice(&vec![0xff; n.n as usize])?.to_val(),
         St::BytesN(n) => host.bytes_new_from_slice(&vec![1u8; n.n as usize])?.to_val(),
+        St::String if edge => host.string_new_from_slice(&[0xf0; 40])?.to_val(),
         St::String => host.string_new_from_slice(b"antlion")?.to_val(),
+        St::Symbol if edge => host.symbol_new_from_slice(b"abcdefghijklmnop")?.to_val(),
         St::Symbol => host.symbol_new_from_slice(b"sym")?.to_val(),
+
         St::Address => self_addr,
         other => unreachable!("[err] arg_val called on unsupported type {other:?}"),
     })
