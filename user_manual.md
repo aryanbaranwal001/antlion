@@ -1,9 +1,14 @@
 # antlion user manual
 
-1. [Contract pair](#contract-pair)
-2. [Build](#build)
-3. [Compare](#compare)
-4. [Reports](#reports)
+This manual covers every command, option and report. For installing antlion and setting up
+a contract pair, see the [README](README.md).
+
+1. [Commands](#commands)
+   - [Build](#build)
+   - [Compare](#compare)
+   - [Help and version](#help-and-version)
+2. [Reading the output](#reading-the-output)
+3. [Reports](#reports)
    - [size](#size)
    - [sections](#sections)
    - [imports](#imports)
@@ -15,40 +20,22 @@
    - [functions](#functions)
    - [layout](#layout)
 
-## Contract pair
+## Commands
 
-A pair is one directory holding the same contract written twice.
-
-```
-<pair>/
-  sdk/
-    Cargo.toml        cdylib crate depending on soroban-sdk
-    src/lib.rs
-  solang/
-    <pair>.sol
-```
-
-| | Rule |
-|---|---|
-| subdirectories | named `sdk` and `solang` |
-| `.sol` filename | matches the directory exactly, `flow/` holds `flow.sol` |
-| crate name, contract name | free |
-| exported functions | identical on both sides |
-
-The last one is what makes the comparison work. Reports pair rows by name, so a function
-on one side only is reported as unpaired rather than compared.
-
-The Rust crate needs the release profile at whichever `Cargo.toml` cargo treats as the
-root. See README.
-
-## Build
+### Build
 
 ```
 antlion --build <path to pair>
 ```
 
-Takes a path, relative to the working directory unless absolute. A bare `flow` means
-`./flow`.
+Builds both sides of a pair: the Rust side with `stellar contract build` and the Solidity
+side with `solang compile --target soroban`.
+
+The path is relative to the directory you run the command from, unless it is absolute. A
+bare `flow` means `./flow`; antlion does not look anywhere else for it.
+
+The output goes to `out/<name>/sdk.wasm` and `out/<name>/solang.wasm`, where `<name>` is
+the last part of the path. `out/` is created in the directory you run the command from.
 
 ```
 antlion --build contracts/scalar_id      ->  out/scalar_id/
@@ -56,151 +43,204 @@ antlion --build ../elsewhere/mypair      ->  out/mypair/
 antlion --build /abs/path/to/mypair      ->  out/mypair/
 ```
 
-Output is `out/<last component>/sdk.wasm` and `out/<last component>/solang.wasm`,
-relative to where you ran the command.
-
-## Compare
+### Compare
 
 ```
 antlion --compare <name>... --report <report>... [--detail | --dump]
 ```
 
-Takes the **name**, not the path, and reads `out/<name>/`. Build first.
+Compares the two builds of a pair. It takes the pair's **name**, not its path, and reads
+`out/<name>/`, so build the pair first.
+
+`--report` is required. Give one or more report names, or `all` for every report. You can
+also give several pairs at once. Pairs and reports run in the order you write them.
 
 ```
 antlion --compare scalar_id --report all
 antlion --compare scalar_id scalar_math --report size returns
+antlion --compare flow --report opcodes --dump
 ```
 
-`--report` is required. Pass `all` for every report. Several names and several reports may
-be given at once, and each runs in the order written.
+`--detail` and `--dump` only affect the `opcodes` report and must come last. See
+[opcodes](#opcodes).
 
-`diff` is always sdk minus solang. Positive means the Rust build has more.
+### Help and version
+
+```
+antlion --help
+antlion --version
+```
+
+`--help` prints a short reference of every command, option and report. `--version` prints
+the version you have.
+
+## Reading the output
+
+Every report shows the Rust build as `sdk` and the Solidity build as `solang`, side by
+side. Where there is a `diff` column, it is always `sdk` minus `solang`: a positive number
+means the Rust build has more, a negative number means the Solidity build has more.
+
+```
+sdk     solang  diff
+2845    3734    -889
+```
+
+Here the Solidity build is 889 bytes larger.
+
+A dash, `—`, in a column means that side has nothing to show there, for example a function
+that exists on one side only.
 
 ## Reports
 
-| | Answers |
+| Report | Answers |
 |---|---|
-| [`size`](#size) | how big is each module |
-| [`sections`](#sections) | which part of the module holds the bytes |
-| [`imports`](#imports) | which host functions each side needs |
-| [`interface`](#interface) | do both sides declare the same signatures |
-| [`returns`](#returns) | do both sides answer the same thing |
-| [`cost`](#cost) | what does one call charge |
-| [`ledger`](#ledger) | does each side store the same thing under the same key |
-| [`opcodes`](#opcodes) | what kind of code does each side emit |
-| [`functions`](#functions) | which function carries the size or complexity |
-| [`layout`](#layout) | what memory, tables and globals are declared |
+| [`size`](#size) | How big is each module? |
+| [`sections`](#sections) | Which part of the module holds the bytes? |
+| [`imports`](#imports) | Which host functions does each side use? |
+| [`interface`](#interface) | Do both sides declare the same functions? |
+| [`returns`](#returns) | Do both sides give the same answers? |
+| [`cost`](#cost) | What does one call cost to run? |
+| [`ledger`](#ledger) | Do both sides store the same data under the same keys? |
+| [`opcodes`](#opcodes) | What kind of code does each side produce? |
+| [`functions`](#functions) | Which functions account for the size and complexity? |
+| [`layout`](#layout) | What memory, tables and globals does each side declare? |
 
 ### size
 
-Total module bytes, one line.
+The total size of each module in bytes.
 
 ### sections
 
-Bytes per WebAssembly section, with custom sections named individually. Use it when `size`
-shows a gap and you want to know whether it is code, data or metadata.
+Bytes per WebAssembly section, with each custom section named. Use it when `size` shows a
+gap and you want to know whether it is code, data or metadata.
 
 ### imports
 
-The host functions each side pulls in, as a sorted union with a marker per side.
+The Soroban host functions each side imports, as one sorted list with a mark for each side.
 
-A function present on one side only is the strongest single signal in the tool. It means
-one build cannot do something the other can, before any code is read.
+A function imported by one side only is a quick sign that the two builds do something
+differently, before you read any code.
 
 ### interface
 
-Every exported signature, decoded from `contractspecv0`.
+Every exported function with its argument and return types, read from the module's
+`contractspecv0` section.
 
-These are Soroban types. In the wasm itself every parameter and return is an `i64`, so a
-mismatch here is a mismatch in what each side declares to callers, not in the wasm.
+These are the Soroban types callers see. Inside the WebAssembly every argument and return
+value is an `i64`, so a difference here is in what each side tells callers, not in the
+code.
 
 ### returns
 
-Invokes every function on both builds and compares the answers as `ScVal`s. Each module is
-deployed into a fresh host, so every call starts from empty storage.
+Calls every function on both builds and compares the answers. Each call deploys the module
+into a fresh host, so every call starts with empty storage.
 
-Each function runs four times:
+Arguments are generated from each function's declared types. Every function is called once
+with each of four value classes:
 
-| Class | Passes |
+| Class | Values |
 |---|---|
-| `small` | values that fit inside the 56 bit payload and travel inline |
-| `large` | values past the payload, which arrive as object handles |
-| `bound` | the largest value that still fits inline, and type extremes |
-| `neg` | negatives, zeros and empty sequences |
+| `small` | small enough to fit inside the 56 bit `Val` payload |
+| `large` | too big for the payload, so the host passes them as object handles |
+| `bound` | the largest value that fits in the payload, and each type's limits |
+| `neg` | negatives, zeros and empty values |
 
-A function that takes a struct also runs with the struct in four shapes neither side
-should accept, every other argument at `small`:
+A function that takes a struct is also called with four malformed versions of it, every
+other argument at `small`:
 
 | Shape | Sends |
 |---|---|
-| `extra` | a field the struct does not declare |
+| `extra` | the struct plus a field it does not declare |
 | `short` | the struct without its last field |
 | `wrong` | the first field as the wrong type |
-| `asvec` | the right values as a vec rather than a map |
+| `asvec` | the right values as a vec instead of a map |
 
-Every function with an argument that is not a struct also gets a `badarg` row: that
-argument sent as the wrong type, `i32(-1)`, or `u32::MAX` where an `i32` is declared.
+A function with any other argument also gets a `badarg` row: its first such argument sent
+as the wrong type, `i32(-1)`, or `u32::MAX` where an `i32` is declared.
 
-Every row above runs with no authorization. A function that takes an address also gets an
-`authed` row: `small`, with every authorization the call asks for granted.
+All of these rows run without authorization, so a function that calls `require_auth`
+fails on them. A function that takes an address also gets an `authed` row: `small`
+arguments, with every authorization the call asks for granted.
 
-For the malformed and `badarg` rows `both failed` is the expected answer, and `sdk failed` means solang accepted
-what the sdk rejected. When both fail with different errors, both are printed in full,
-since one side may have accepted the input and failed later for another reason.
+Each row ends with a verdict:
 
-A row reading `DIFFER` prints both values in full underneath. A call that fails prints its
-`HostError` in place of the value.
+| Verdict | Means |
+|---|---|
+| `same` | both sides returned the same value |
+| `DIFFER` | both sides returned, with different values; both are printed in full underneath |
+| `sdk failed` | only the Rust build failed |
+| `solang failed` | only the Solidity build failed |
+| `both failed` | both builds failed |
+
+For the malformed and `badarg` rows, `both failed` is the expected result, and `sdk failed`
+means the Solidity build accepted what the Rust build rejected. When both fail with
+different errors, both errors are printed in full, because one side may have accepted the
+input and failed later for another reason.
+
+The last line counts the calls that ran on both sides and how many of them disagreed.
 
 ### cost
 
-CPU instructions and memory bytes charged for one call, on a fresh host, with the module
-already in the host's module cache. The network keeps every live contract parsed
-(CAP-0065, protocol 23), so a real call pays to instantiate the module but not to parse it.
+The CPU instructions and memory bytes charged for one call of each function, on a fresh
+host, with `small` arguments.
 
-Absolute figures are dominated by instantiating the module, so read the difference, not
-the total.
+The module is put in the host's module cache before the call. The network keeps every live
+contract parsed (CAP-0065, protocol 23), so a real call pays to set up the module but not
+to parse it, and this report measures the same.
+
+Every call has a large fixed cost, so compare the `diff` column, not the totals.
 
 ### ledger
 
-Calls every function once on a fresh deploy with `small` inputs and every authorization
-granted, then lists every entry
-each side holds: storage class, key and value. Instance storage is unpacked into one row
-per key.
+Calls every function once on a fresh deploy, with `small` arguments and every authorization
+granted, then lists everything each side has stored: storage class, key and value.
+Instance storage is shown as one row per key.
 
-Each function ends with `layout: same` or `layout: differs`. Entries written by the deploy
-itself, before any call, are included, so a side that initialises storage in its
-constructor shows rows even for a function that only reads.
+Entries written when the contract was deployed, before the call, are included. So a side
+that sets up storage in its constructor shows entries even for a function that only reads.
+
+Each function ends with one of:
+
+| Line | Means |
+|---|---|
+| `layout: same` | both sides stored exactly the same entries |
+| `layout: differs` | the entries differ in class, key or value |
+| `layout: not compared, a call failed` | one side's call failed, so there is nothing to compare |
+
+Numbers carry their type, such as `1u32` or `0i64`, so values of different types never look
+the same.
 
 ### opcodes
 
-Instruction histogram, bucketed by kind, over every function body in the module. Imported
-host functions have no body and are never counted here.
+A count of the instructions in every function, grouped by kind. Imported host functions
+have no code of their own, so they are not counted.
 
-| Flag | Shows |
+| Option | Shows |
 |---|---|
-| none | per bucket counts |
-| `--detail` | each bucket broken into its opcodes, plus opcodes exclusive to one side |
-| `--dump` | per function disassembly in two columns, replaces the histogram |
+| none | the count for each kind |
+| `--detail` | each kind broken down into its instructions, plus any used by one side only |
+| `--dump` | the full code of every function in two columns, instead of the counts |
 
-Both flags apply to `opcodes` alone and must come last.
+Both options only work with `opcodes` and must come last.
 
-In `--dump` the two columns are independent. Nothing is diffed or aligned; each side reads
-top to bottom in program order, the shorter one padded. Exported functions come first,
-grouped by name, then internal functions. Opcode names are the raw wasm variant names,
-`LocalGet` rather than `local.get`.
+In `--dump`, the two columns are independent: each side is listed top to bottom in its own
+order, and the shorter one is padded. Nothing is lined up between them. Exported functions
+come first, grouped by name, then internal functions. Instructions use their raw
+WebAssembly names, such as `LocalGet` for `local.get`.
 
 ### functions
 
-Per function bytes, instructions, locals, control flow depth and call count.
+For each function: bytes, instructions, locals, how deeply its control flow nests, and how
+many calls it makes.
 
-Exported functions pair by name. Internal functions are anonymous and index N on one side
-has nothing to do with index N on the other, so they collapse into one summed row, with
-depth kept as the maximum.
+Exported functions are matched by name. Internal functions have no names, and number N on
+one side has nothing to do with number N on the other, so they are added up into one row,
+with nesting depth kept as the largest.
 
-Byte counts are only comparable within one contract. Adding a function changes the
-existing rows, because shared paths get outlined and identical bodies merged.
+Byte counts are only comparable within one contract. Adding a function to a contract can
+change the existing rows, because the compiler moves shared code into helpers and merges
+identical ones.
 
 ### layout
 
-Declared linear memory pages, tables and globals.
+The linear memory pages, tables and globals each module declares.
