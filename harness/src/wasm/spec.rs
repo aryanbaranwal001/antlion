@@ -82,6 +82,9 @@ fn supported(iface: &Interface, t: &ScSpecTypeDef) -> bool {
         return struct_of(iface, &u.name.to_utf8_string_lossy())
             .is_some_and(|s| s.fields.iter().all(|(_, f)| supported(iface, f)));
     }
+    if let St::Vec(v) = t {
+        return supported(iface, &v.element_type);
+    }
     matches!(
         t,
         St::Bool
@@ -346,6 +349,21 @@ fn arg_val(
             let s = struct_of(iface, &u.name.to_utf8_string_lossy())
                 .expect("[err] arg_val called on an unknown struct");
             struct_val(host, self_addr, iface, s, kind)?
+        }
+
+        // A vec is sized by the class too: three elements, twenty past the inline range,
+        // one at the boundary, or none.
+        (St::Vec(v), _) => {
+            let (n, elem) = match kind {
+                Small => (3, Small),
+                Large => (20, Large),
+                Bound => (1, Bound),
+                Neg => (0, Small),
+            };
+            let vals = (0..n)
+                .map(|_| arg_val(host, self_addr, iface, &v.element_type, elem))
+                .collect::<Result<Vec<_>, _>>()?;
+            host.vec_new_from_slice(&vals)?.to_val()
         }
 
         (St::Void, _) => Val::VOID.to_val(),

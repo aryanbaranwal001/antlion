@@ -1,4 +1,4 @@
-antlion — differential harness for Soroban contracts built two ways:
+antlion: a differential harness for Soroban contracts built two ways:
 the Rust soroban-sdk, and Solidity through Solang.
 
 USAGE
@@ -37,12 +37,36 @@ REPORTS
     layout      declared memory, globals and tables
     all         every report above, in that order
 
+INPUTS
+
+    returns calls every function once per input row. cost and ledger use `small`.
+
+    small       values that ride inline in the 56 bit Val payload
+    large       values past the payload, passed as object handles
+    bound       the largest inline value, and type extremes
+    neg         negatives, zeros and empties
+
+    Functions that take a struct also get, with every other argument at `small`:
+
+    extra       the struct plus a field it does not declare
+    short       the struct without its last field
+    wrong       its first field as the wrong type
+    asvec       the right values as a vec rather than a map
+
+    Functions with any other argument also get:
+
+    badarg      that argument as the wrong type: i32(-1), or u32::MAX for an i32
+
+    Structs are built the way soroban-sdk encodes them; a vec holds 3, 20, 1 or 0
+    elements for small, large, bound and neg.
+
 BUNDLED CONTRACTS
 
     under contracts/ in this repository
 
-    baseline   scalar_id   scalar_math   scalar_store   storage
-    flow   struct_store   struct_mem   vec_mem   location
+    baseline   scalar_id   scalar_math   scalar_store   storage   flow
+    struct_store   struct_mem   struct_id   struct_class   struct_vec
+    vec_mem   vec_id   mapping   location   slots
 
 EXAMPLES
 
@@ -56,3 +80,5 @@ NOTES
 
     --compare reads out/<name>/{sdk,solang}.wasm, so run --build first.
     --detail and --dump apply to the opcodes report only, and must come last.
+    returns prints both values in full when they differ, and both errors in full
+    when both sides fail with different errors.
