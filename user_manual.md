@@ -139,8 +139,12 @@ should accept, every other argument at `small`:
 | `wrong` | the first field as the wrong type |
 | `asvec` | the right values as a vec rather than a map |
 
+Every function with an argument that is not a struct also gets a `badarg` row: that
+argument sent as the wrong type, `i32(-1)`, or `u32::MAX` where an `i32` is declared.
+
 For these rows `both failed` is the expected answer, and `sdk failed` means solang accepted
-what the sdk rejected.
+what the sdk rejected. When both fail with different errors, both are printed in full,
+since one side may have accepted the input and failed later for another reason.
 
 A row reading `DIFFER` prints both values in full underneath. A call that fails prints its
 `HostError` in place of the value.

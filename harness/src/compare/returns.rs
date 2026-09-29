@@ -58,6 +58,15 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
                 row(&f.name, m.label(), &s, &l, &mut checked, &mut differ);
             }
         }
+
+        // The first argument that is not a struct, sent as the wrong type. Soroban leaves
+        // type checking to the contract, so this asks whether each side does it.
+        if spec::takes_plain(&f.inputs) {
+            let args = |h: &Host, addr| spec::build_wrong_arg(h, addr, &sdk.interface, &f.inputs);
+            let s = invoke(sdk.wasm, &f.name, args);
+            let l = invoke(solang.wasm, &f.name, args);
+            row(&f.name, "badarg", &s, &l, &mut checked, &mut differ);
+        }
     }
 
     println!();
@@ -99,8 +108,10 @@ fn row(
     );
 
     // A truncated column is fine when the two agree. When they do not, the difference is
-    // the whole point, so print both in full.
-    if verdict == "DIFFER" {
+    // the whole point, so print both in full. Two failures with different errors count too:
+    // one side may have accepted the input and failed later for another reason.
+    let different_errors = matches!((s, l), (Err(_), Err(_))) && full(s) != full(l);
+    if verdict == "DIFFER" || different_errors {
         println!("{:>NAME$}   sdk    {}", "", full(s));
         println!("{:>NAME$}   solang {}", "", full(l));
     }

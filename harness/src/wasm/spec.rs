@@ -153,6 +153,44 @@ impl Malformed {
     }
 }
 
+/// A value of the wrong type for `t`: `i32(-1)` where anything else is declared, and
+/// `u32::MAX` where an `i32` is. All 32 bits set, so a side that reinterprets the word
+/// rather than rejecting it answers with a visibly different number.
+fn wrong_val(t: &ScSpecTypeDef) -> Val {
+    match t {
+        ScSpecTypeDef::I32 => Val::from_u32(u32::MAX).to_val(),
+        _ => Val::from_i32(-1).to_val(),
+    }
+}
+
+/// Whether any input is something other than a struct, so a wrongly typed argument can be
+/// sent.
+pub fn takes_plain(inputs: &[ScSpecTypeDef]) -> bool {
+    inputs.iter().any(|t| !matches!(t, ScSpecTypeDef::Udt(_)))
+}
+
+/// Arguments at `small`, except the first one that is not a struct, which is sent as the
+/// wrong type.
+pub fn build_wrong_arg(
+    host: &Host,
+    self_addr: Val,
+    iface: &Interface,
+    inputs: &[ScSpecTypeDef],
+) -> Result<Vec<Val>, HostError> {
+    let mut done = false;
+    inputs
+        .iter()
+        .map(|t| match t {
+            ScSpecTypeDef::Udt(_) => arg_val(host, self_addr, iface, t, Inputs::Small),
+            _ if !done => {
+                done = true;
+                Ok(wrong_val(t))
+            }
+            _ => arg_val(host, self_addr, iface, t, Inputs::Small),
+        })
+        .collect()
+}
+
 /// Whether any input is a struct, so the malformed shapes apply.
 pub fn takes_struct(inputs: &[ScSpecTypeDef]) -> bool {
     inputs.iter().any(|t| matches!(t, ScSpecTypeDef::Udt(_)))
@@ -239,14 +277,7 @@ fn malformed_val(
         Malformed::Missing => {
             fields.pop();
         }
-        Malformed::WrongType => {
-            // An `i32` where anything else is declared, a `u32` where an `i32` is.
-            let wrong = match s.fields[0].1 {
-                ScSpecTypeDef::I32 => Val::from_u32(1).to_val(),
-                _ => Val::from_i32(1).to_val(),
-            };
-            fields[0].1 = wrong;
-        }
+        Malformed::WrongType => fields[0].1 = wrong_val(&s.fields[0].1),
     }
 
     fields.sort_by(|a, b| a.0.cmp(&b.0));
