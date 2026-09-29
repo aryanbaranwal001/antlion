@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.0;
 
-/// Twenty state variables, each written and read back by its own function. A mapping, an
-/// array and a struct come first, then seventeen `uint32`s, so this pair shows which key
-/// each kind of variable is given and where the key sequence stops being usable.
+/// Twenty two state variables, each written and read back by its own function. A mapping,
+/// an array, a struct, a nested struct and a fixed size array come first, then seventeen
+/// `uint32`s, so this pair shows which key each kind of variable is given and where the key
+/// sequence stops being usable.
 ///
 /// The aggregates are declared first on purpose: solang writes them at deploy, so one
 /// placed past the limit would make every call fail and hide the rest of the pair.
@@ -15,11 +16,16 @@ contract Slots {
         uint32 y;
     }
 
+    struct Outer {
+        Point inner;
+        uint32 tag;
+    }
+
     mapping(uint32 => uint32) instance m;
     uint32[] instance xs;
     Point instance p;
-    uint32 instance v03;
-    uint32 instance v04;
+    Outer instance o;
+    uint32[4] instance fx;
     uint32 instance v05;
     uint32 instance v06;
     uint32 instance v07;
@@ -35,6 +41,8 @@ contract Slots {
     uint32 instance v17;
     uint32 instance v18;
     uint32 instance v19;
+    uint32 instance v20;
+    uint32 instance v21;
 
     function put_m(uint32 a) public returns (uint32) {
         m[a] = a;
@@ -51,14 +59,14 @@ contract Slots {
         return p.x;
     }
 
-    function put_v03(uint32 a) public returns (uint32) {
-        v03 = a;
-        return v03;
+    function put_o(uint32 a) public returns (uint32) {
+        o.inner.x = a;
+        return o.inner.x;
     }
 
-    function put_v04(uint32 a) public returns (uint32) {
-        v04 = a;
-        return v04;
+    function put_fx(uint32 a) public returns (uint32) {
+        fx[0] = a;
+        return fx[0];
     }
 
     function put_v05(uint32 a) public returns (uint32) {
@@ -134,5 +142,15 @@ contract Slots {
     function put_v19(uint32 a) public returns (uint32) {
         v19 = a;
         return v19;
+    }
+
+    function put_v20(uint32 a) public returns (uint32) {
+        v20 = a;
+        return v20;
+    }
+
+    function put_v21(uint32 a) public returns (uint32) {
+        v21 = a;
+        return v21;
     }
 }

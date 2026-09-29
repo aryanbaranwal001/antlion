@@ -1,31 +1,41 @@
 #![no_std]
-use soroban_sdk::{Env, Vec, contract, contractimpl, contracttype};
+use soroban_sdk::{Env, Vec, contract, contractimpl, contracttype, vec};
 
-/// One key per state variable. `V(n)` is the `uint32` the solidity side declares n-th.
+/// One key per state variable. `V(n)` is the `uint32` the solidity side declares n-th,
+/// counting from zero across every state variable.
 #[contracttype]
 pub enum DataKey {
     M(u32),
     Xs,
     P,
+    O,
+    Fx,
     V(u32),
 }
 
 #[contracttype]
+#[derive(Clone)]
 pub struct Point {
     pub x: u32,
     pub y: u32,
 }
 
+#[contracttype]
+pub struct Outer {
+    pub inner: Point,
+    pub tag: u32,
+}
+
 #[contract]
 pub struct Slots;
 
-/// Twenty state variables, each written and read back by its own function. The solidity
-/// side declares a mapping, an array and a struct first, then seventeen `uint32`s, so this
-/// pair shows which key each kind of variable is given and where the key sequence stops
-/// being usable.
+/// Twenty two state variables, each written and read back by its own function. The
+/// solidity side declares a mapping, an array, a struct, a nested struct and a fixed size
+/// array first, then seventeen `uint32`s, so this pair shows which key each kind of
+/// variable is given and where the key sequence stops being usable.
 ///
 /// Every key here is chosen by the author, so the Rust side has no limit on how many
-/// there are.
+/// there are. Rust has no fixed size array in storage, so `fx` is a `Vec` of four.
 #[contractimpl]
 impl Slots {
     pub fn put_m(env: Env, a: u32) -> u32 {
@@ -56,12 +66,27 @@ impl Slots {
         p.x
     }
 
-    pub fn put_v03(env: Env, a: u32) -> u32 {
-        put(&env, DataKey::V(3), a)
+    pub fn put_o(env: Env, a: u32) -> u32 {
+        let mut o = env.storage().instance().get(&DataKey::O).unwrap_or(Outer {
+            inner: Point { x: 0, y: 0 },
+            tag: 0,
+        });
+        o.inner.x = a;
+        env.storage().instance().set(&DataKey::O, &o);
+        let o: Outer = env.storage().instance().get(&DataKey::O).unwrap();
+        o.inner.x
     }
 
-    pub fn put_v04(env: Env, a: u32) -> u32 {
-        put(&env, DataKey::V(4), a)
+    pub fn put_fx(env: Env, a: u32) -> u32 {
+        let mut fx: Vec<u32> = env
+            .storage()
+            .instance()
+            .get(&DataKey::Fx)
+            .unwrap_or(vec![&env, 0, 0, 0, 0]);
+        fx.set(0, a);
+        env.storage().instance().set(&DataKey::Fx, &fx);
+        let fx: Vec<u32> = env.storage().instance().get(&DataKey::Fx).unwrap();
+        fx.get(0).unwrap()
     }
 
     pub fn put_v05(env: Env, a: u32) -> u32 {
@@ -122,6 +147,14 @@ impl Slots {
 
     pub fn put_v19(env: Env, a: u32) -> u32 {
         put(&env, DataKey::V(19), a)
+    }
+
+    pub fn put_v20(env: Env, a: u32) -> u32 {
+        put(&env, DataKey::V(20), a)
+    }
+
+    pub fn put_v21(env: Env, a: u32) -> u32 {
+        put(&env, DataKey::V(21), a)
     }
 }
 
