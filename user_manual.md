@@ -10,6 +10,7 @@
    - [interface](#interface)
    - [returns](#returns)
    - [cost](#cost)
+   - [ledger](#ledger)
    - [opcodes](#opcodes)
    - [functions](#functions)
    - [layout](#layout)
@@ -86,6 +87,7 @@ be given at once, and each runs in the order written.
 | [`interface`](#interface) | do both sides declare the same signatures |
 | [`returns`](#returns) | do both sides answer the same thing |
 | [`cost`](#cost) | what does one call charge |
+| [`ledger`](#ledger) | does each side store the same thing under the same key |
 | [`opcodes`](#opcodes) | what kind of code does each side emit |
 | [`functions`](#functions) | which function carries the size or complexity |
 | [`layout`](#layout) | what memory, tables and globals are declared |
@@ -136,6 +138,16 @@ CPU instructions and memory bytes charged for one call, on a fresh host.
 
 Absolute figures are dominated by virtual machine instantiation, so read the difference,
 not the total.
+
+### ledger
+
+Calls every function once on a fresh deploy with `small` inputs, then lists every entry
+each side holds: storage class, key and value. Instance storage is unpacked into one row
+per key.
+
+Each function ends with `layout: same` or `layout: differs`. Entries written by the deploy
+itself, before any call, are included, so a side that initialises storage in its
+constructor shows rows even for a function that only reads.
 
 ### opcodes
 

@@ -5,6 +5,7 @@ mod functions;
 mod imports;
 mod interface;
 mod layout;
+mod ledger;
 mod opcodes;
 mod returns;
 mod section;
@@ -12,13 +13,14 @@ mod size;
 
 use crate::wasm::Contract;
 
-const SECTIONS: [&str; 9] = [
+const SECTIONS: [&str; 10] = [
     "size",
     "sections",
     "imports",
     "interface",
     "returns",
     "cost",
+    "ledger",
     "opcodes",
     "functions",
     "layout",
@@ -77,6 +79,7 @@ pub fn run(args: &[String]) {
                 "interface" => interface::report(&sdk, &solang),
                 "returns" => returns::report(name, &sdk, &solang),
                 "cost" => cost::report(name, &sdk, &solang),
+                "ledger" => ledger::report(name, &sdk, &solang),
                 "opcodes" => opcodes::report(&sdk, &solang, mode),
                 "functions" => functions::report(&sdk, &solang),
                 "layout" => layout::report(&sdk, &solang),
