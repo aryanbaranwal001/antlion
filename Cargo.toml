@@ -12,6 +12,7 @@ members = [
     "contracts/vec_mem/sdk",
     "contracts/location/sdk",
     "contracts/struct_id/sdk",
+    "contracts/mapping/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
