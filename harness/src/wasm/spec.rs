@@ -11,29 +11,49 @@ pub struct FnSpec {
     pub output: Option<ScSpecTypeDef>,
 }
 
-pub struct Interface {
-    pub funcs: Vec<FnSpec>,
+/// A `#[contracttype]` struct: its name and its fields in declaration order.
+pub struct StructSpec {
+    pub name: String,
+    pub fields: Vec<(String, ScSpecTypeDef)>,
 }
 
-/// Read `contractspecv0` and XDR-decode its function entries.
+pub struct Interface {
+    pub funcs: Vec<FnSpec>,
+    pub structs: Vec<StructSpec>,
+}
+
+/// Read `contractspecv0` and XDR-decode its function and struct entries.
 pub fn parse(wasm: &[u8], sections: &[super::Section]) -> Interface {
     let Some(bytes) = super::custom_section(wasm, sections, "contractspecv0") else {
-        return Interface { funcs: Vec::new() };
+        return Interface {
+            funcs: Vec::new(),
+            structs: Vec::new(),
+        };
     };
 
     let mut reader = Limited::new(Cursor::new(bytes), Limits::none());
     let mut funcs = Vec::new();
+    let mut structs = Vec::new();
     for entry in ScSpecEntry::read_xdr_iter(&mut reader) {
-        if let Ok(ScSpecEntry::FunctionV0(f)) = entry {
-            funcs.push(FnSpec {
+        match entry {
+            Ok(ScSpecEntry::FunctionV0(f)) => funcs.push(FnSpec {
                 name: f.name.0.to_utf8_string_lossy(),
                 inputs: f.inputs.iter().map(|i| i.type_.clone()).collect(),
                 output: f.outputs.first().cloned(),
-            });
+            }),
+            Ok(ScSpecEntry::UdtStructV0(u)) => structs.push(StructSpec {
+                name: u.name.to_utf8_string_lossy(),
+                fields: u
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.to_utf8_string_lossy(), f.type_.clone()))
+                    .collect(),
+            }),
+            _ => {}
         }
     }
 
-    Interface { funcs }
+    Interface { funcs, structs }
 }
 
 /// Human-readable signature, e.g. `add(u32, u32) -> u32`.
@@ -52,12 +72,16 @@ pub fn sig(f: &FnSpec) -> String {
 }
 
 /// Whether every input type can be synthesized.
-pub fn args_supported(inputs: &[ScSpecTypeDef]) -> bool {
-    inputs.iter().all(supported)
+pub fn args_supported(iface: &Interface, inputs: &[ScSpecTypeDef]) -> bool {
+    inputs.iter().all(|t| supported(iface, t))
 }
 
-fn supported(t: &ScSpecTypeDef) -> bool {
+fn supported(iface: &Interface, t: &ScSpecTypeDef) -> bool {
     use ScSpecTypeDef as St;
+    if let St::Udt(u) = t {
+        return struct_of(iface, &u.name.to_utf8_string_lossy())
+            .is_some_and(|s| s.fields.iter().all(|(_, f)| supported(iface, f)));
+    }
     matches!(
         t,
         St::Bool
@@ -113,21 +137,63 @@ impl Inputs {
 /// Object types (`u128`, `bytes`, `string`, `address`, …) are handles into one host's
 /// object table, so they have to be built against the host that will run the call.
 /// `self_addr` is the contract's own address, used wherever an `address` is wanted.
+/// Structs are looked up in `iface` and built from their fields at the same `kind`.
 pub fn build_args(
     host: &Host,
     self_addr: Val,
+    iface: &Interface,
     inputs: &[ScSpecTypeDef],
     kind: Inputs,
 ) -> Result<Vec<Val>, HostError> {
     inputs
         .iter()
-        .map(|t| arg_val(host, self_addr, t, kind))
+        .map(|t| arg_val(host, self_addr, iface, t, kind))
         .collect()
+}
+
+fn struct_of<'a>(iface: &'a Interface, name: &str) -> Option<&'a StructSpec> {
+    iface.structs.iter().find(|s| s.name == name)
+}
+
+/// A struct in the encoding soroban-sdk uses: a tuple struct (fields named `0`, `1`, ...)
+/// is a vec of its fields in order, any other struct is a map from field name symbol to
+/// value, with keys sorted.
+fn struct_val(
+    host: &Host,
+    self_addr: Val,
+    iface: &Interface,
+    s: &StructSpec,
+    kind: Inputs,
+) -> Result<Val, HostError> {
+    let tuple = s
+        .fields
+        .iter()
+        .enumerate()
+        .all(|(i, (n, _))| *n == i.to_string());
+
+    if tuple {
+        let vals = s
+            .fields
+            .iter()
+            .map(|(_, t)| arg_val(host, self_addr, iface, t, kind))
+            .collect::<Result<Vec<_>, _>>()?;
+        return Ok(host.vec_new_from_slice(&vals)?.to_val());
+    }
+
+    let mut fields: Vec<&(String, ScSpecTypeDef)> = s.fields.iter().collect();
+    fields.sort_by(|a, b| a.0.cmp(&b.0));
+    let keys: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+    let vals = fields
+        .iter()
+        .map(|(_, t)| arg_val(host, self_addr, iface, t, kind))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(host.map_new_from_slices(&keys, &vals)?.to_val())
 }
 
 fn arg_val(
     host: &Host,
     self_addr: Val,
+    iface: &Interface,
     t: &ScSpecTypeDef,
     kind: Inputs,
 ) -> Result<Val, HostError> {
@@ -141,6 +207,12 @@ fn arg_val(
     const BIG: u64 = 1 << 60;
 
     Ok(match (t, kind) {
+        (St::Udt(u), _) => {
+            let s = struct_of(iface, &u.name.to_utf8_string_lossy())
+                .expect("[err] arg_val called on an unknown struct");
+            struct_val(host, self_addr, iface, s, kind)?
+        }
+
         (St::Void, _) => Val::VOID.to_val(),
         (St::Address, _) => self_addr,
 

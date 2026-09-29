@@ -23,15 +23,15 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     }
 
     for f in &sdk.interface.funcs {
-        if !spec::args_supported(&f.inputs) {
+        if !spec::args_supported(&sdk.interface, &f.inputs) {
             println!("[skip] {} — unsupported arg types", spec::sig(f));
             continue;
         }
 
         println!("{}\n", spec::sig(f));
 
-        let s = measure(sdk.wasm, &f.name, &f.inputs);
-        let l = measure(solang.wasm, &f.name, &f.inputs);
+        let s = measure(sdk.wasm, &sdk.interface, &f.name, &f.inputs);
+        let l = measure(solang.wasm, &sdk.interface, &f.name, &f.inputs);
 
         if let Err(e) = &s {
             println!("[err] sdk invoke failed: {e:?}");
@@ -58,13 +58,18 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
 ///
 /// Arguments are built here rather than passed in, because object handles belong to one
 /// host's object table and each side gets its own host.
-fn measure(wasm: &[u8], func: &str, inputs: &[ScSpecTypeDef]) -> Result<Cost, HostError> {
+fn measure(
+    wasm: &[u8],
+    iface: &spec::Interface,
+    func: &str,
+    inputs: &[ScSpecTypeDef],
+) -> Result<Cost, HostError> {
     let host = Host::test_host_with_recording_footprint();
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
 
-    let args = spec::build_args(&host, contract.to_val(), inputs, spec::Inputs::Small)?;
+    let args = spec::build_args(&host, contract.to_val(), iface, inputs, spec::Inputs::Small)?;
 
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
     let argv = host.vec_new_from_slice(&args)?;

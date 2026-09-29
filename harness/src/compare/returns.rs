@@ -35,14 +35,14 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     let mut checked = 0;
 
     for f in &sdk.interface.funcs {
-        if !spec::args_supported(&f.inputs) {
+        if !spec::args_supported(&sdk.interface, &f.inputs) {
             println!("{:<NAME$} {}", f.name, "— unsupported arg types");
             continue;
         }
 
         for kind in spec::ALL_INPUTS {
-            let s = invoke(sdk.wasm, &f.name, &f.inputs, kind);
-            let l = invoke(solang.wasm, &f.name, &f.inputs, kind);
+            let s = invoke(sdk.wasm, &sdk.interface, &f.name, &f.inputs, kind);
+            let l = invoke(solang.wasm, &sdk.interface, &f.name, &f.inputs, kind);
 
             let verdict = match (&s, &l) {
                 (Ok(a), Ok(b)) => {
@@ -85,6 +85,7 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
 /// Deploy `wasm`, call `func` with synthesized arguments, and return what it answered.
 fn invoke(
     wasm: &[u8],
+    iface: &spec::Interface,
     func: &str,
     inputs: &[ScSpecTypeDef],
     kind: spec::Inputs,
@@ -94,7 +95,7 @@ fn invoke(
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
 
-    let args = spec::build_args(&host, contract.to_val(), inputs, kind)?;
+    let args = spec::build_args(&host, contract.to_val(), iface, inputs, kind)?;
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
     let argv = host.vec_new_from_slice(&args)?;
 
