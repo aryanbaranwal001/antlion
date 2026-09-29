@@ -13,6 +13,7 @@ members = [
     "contracts/location/sdk",
     "contracts/struct_id/sdk",
     "contracts/mapping/sdk",
+    "contracts/slots/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
