@@ -1,7 +1,7 @@
 use soroban_env_host::{
     Env, EnvBase, Host, HostError, Symbol,
     testutils::{generate_account_id, generate_bytes_array},
-    xdr::{ContractDataDurability, LedgerEntryData, ScSpecTypeDef, ScVal},
+    xdr::{ContractDataDurability, LedgerEntryData, ScAddress, ScSpecTypeDef, ScVal},
 };
 
 use crate::wasm::{Contract, spec};
@@ -22,8 +22,9 @@ struct Entry {
 /// `returns` says whether the two agree on the answer; this says whether they agree on
 /// what was written, under which key, in which storage class.
 ///
-/// Each function runs on a fresh deploy with `small` inputs, so the entries shown are what
-/// that one call wrote, plus anything the deploy itself wrote.
+/// Each function runs on a fresh deploy with `small` inputs and every authorization granted,
+/// so the entries shown are what that one call wrote, plus anything the deploy itself
+/// wrote.
 pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     super::banner("ledger after one call");
 
@@ -94,6 +95,9 @@ fn snapshot(
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
+    // Grant any authorization the call asks for, so a function guarded by `require_auth`
+    // still reaches its storage writes. Calls that ask for none are unaffected.
+    host.switch_to_recording_auth(false)?;
 
     let args = spec::build_args(&host, contract.to_val(), iface, inputs, spec::Inputs::Small)?;
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
@@ -157,6 +161,10 @@ fn show(v: &ScVal) -> String {
         ScVal::Symbol(s) => s.0.to_utf8_string_lossy(),
         ScVal::String(s) => format!("{:?}", s.0.to_utf8_string_lossy()),
         ScVal::Error(e) => format!("Error({e:?})"),
+        ScVal::Address(ScAddress::Contract(c)) => {
+            let hex: String = c.0.0[..4].iter().map(|b| format!("{b:02x}")).collect();
+            format!("contract({hex}..)")
+        }
         ScVal::Vec(Some(items)) => format!("[{}]", list(items.iter().map(show).collect())),
         ScVal::Vec(None) => "[]".to_string(),
         ScVal::Map(Some(m)) => format!(

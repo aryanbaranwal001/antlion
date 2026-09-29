@@ -42,9 +42,20 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
 
         for kind in spec::ALL_INPUTS {
             let args = |h: &Host, addr| spec::build_args(h, addr, &sdk.interface, &f.inputs, kind);
-            let s = invoke(sdk.wasm, &f.name, args);
-            let l = invoke(solang.wasm, &f.name, args);
+            let s = invoke(sdk.wasm, &f.name, false, args);
+            let l = invoke(solang.wasm, &f.name, false, args);
             row(&f.name, kind.label(), &s, &l, &mut checked, &mut differ);
+        }
+
+        // Every other row runs with no authorization, so `require_auth` fails. This one
+        // grants whatever is asked for, to see what each side does once it passes.
+        if spec::takes_address(&f.inputs) {
+            let args = |h: &Host, addr| {
+                spec::build_args(h, addr, &sdk.interface, &f.inputs, spec::Inputs::Small)
+            };
+            let s = invoke(sdk.wasm, &f.name, true, args);
+            let l = invoke(solang.wasm, &f.name, true, args);
+            row(&f.name, "authed", &s, &l, &mut checked, &mut differ);
         }
 
         // A struct argument is also sent in shapes neither side should accept. Both
@@ -53,8 +64,8 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
             for m in spec::ALL_MALFORMED {
                 let args =
                     |h: &Host, addr| spec::build_malformed(h, addr, &sdk.interface, &f.inputs, m);
-                let s = invoke(sdk.wasm, &f.name, args);
-                let l = invoke(solang.wasm, &f.name, args);
+                let s = invoke(sdk.wasm, &f.name, false, args);
+                let l = invoke(solang.wasm, &f.name, false, args);
                 row(&f.name, m.label(), &s, &l, &mut checked, &mut differ);
             }
         }
@@ -63,8 +74,8 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
         // type checking to the contract, so this asks whether each side does it.
         if spec::takes_plain(&f.inputs) {
             let args = |h: &Host, addr| spec::build_wrong_arg(h, addr, &sdk.interface, &f.inputs);
-            let s = invoke(sdk.wasm, &f.name, args);
-            let l = invoke(solang.wasm, &f.name, args);
+            let s = invoke(sdk.wasm, &f.name, false, args);
+            let l = invoke(solang.wasm, &f.name, false, args);
             row(&f.name, "badarg", &s, &l, &mut checked, &mut differ);
         }
     }
@@ -119,16 +130,21 @@ fn row(
 
 /// Deploy `wasm`, call `func` with the arguments `args` builds, and return what it answered.
 /// `args` gets the host and the contract's own address, because object handles belong to
-/// the host that runs the call.
+/// the host that runs the call. With `authed`, the host grants every authorization the call
+/// asks for; without it, none.
 fn invoke(
     wasm: &[u8],
     func: &str,
+    authed: bool,
     args: impl Fn(&Host, Val) -> Result<Vec<Val>, HostError>,
 ) -> Result<ScVal, HostError> {
     let host = Host::test_host_with_recording_footprint();
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
+    if authed {
+        host.switch_to_recording_auth(false)?;
+    }
 
     let args = args(&host, contract.to_val())?;
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);

@@ -194,6 +194,11 @@ pub fn build_wrong_arg(
         .collect()
 }
 
+/// Whether any input is an address, so a call with authorization granted is worth making.
+pub fn takes_address(inputs: &[ScSpecTypeDef]) -> bool {
+    inputs.iter().any(|t| matches!(t, ScSpecTypeDef::Address))
+}
+
 /// Whether any input is a struct, so the malformed shapes apply.
 pub fn takes_struct(inputs: &[ScSpecTypeDef]) -> bool {
     inputs.iter().any(|t| matches!(t, ScSpecTypeDef::Udt(_)))
