@@ -57,6 +57,11 @@ INPUTS
 
     badarg      that argument as the wrong type: i32(-1), or u32::MAX for an i32
 
+    Every row above runs with no authorization. Functions that take an address
+    also get:
+
+    authed      `small`, with every authorization the call asks for granted
+
     Structs are built the way soroban-sdk encodes them; a vec holds 3, 20, 1 or 0
     elements for small, large, bound and neg.
 
@@ -66,7 +71,7 @@ BUNDLED CONTRACTS
 
     baseline   scalar_id   scalar_math   scalar_store   storage   flow
     struct_store   struct_mem   struct_id   struct_class   struct_vec
-    vec_mem   vec_id   mapping   location   slots
+    vec_mem   vec_id   mapping   location   slots   auth
 
 EXAMPLES
 

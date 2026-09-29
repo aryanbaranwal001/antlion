@@ -17,6 +17,7 @@ members = [
     "contracts/struct_class/sdk",
     "contracts/struct_vec/sdk",
     "contracts/vec_id/sdk",
+    "contracts/auth/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"

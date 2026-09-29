@@ -142,7 +142,10 @@ should accept, every other argument at `small`:
 Every function with an argument that is not a struct also gets a `badarg` row: that
 argument sent as the wrong type, `i32(-1)`, or `u32::MAX` where an `i32` is declared.
 
-For these rows `both failed` is the expected answer, and `sdk failed` means solang accepted
+Every row above runs with no authorization. A function that takes an address also gets an
+`authed` row: `small`, with every authorization the call asks for granted.
+
+For the malformed and `badarg` rows `both failed` is the expected answer, and `sdk failed` means solang accepted
 what the sdk rejected. When both fail with different errors, both are printed in full,
 since one side may have accepted the input and failed later for another reason.
 
@@ -158,7 +161,8 @@ not the total.
 
 ### ledger
 
-Calls every function once on a fresh deploy with `small` inputs, then lists every entry
+Calls every function once on a fresh deploy with `small` inputs and every authorization
+granted, then lists every entry
 each side holds: storage class, key and value. Instance storage is unpacked into one row
 per key.
 
