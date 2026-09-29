@@ -48,6 +48,7 @@ Note: A pair outside this workspace needs its own `[profile.release]`, see
 cargo run -- --build <contract>
 cargo run -- --compare <name>... --report <report>... [--detail | --dump]
 cargo run -- --help
+cargo run -- --version
 ```
 
 Or, if you are using cli
@@ -56,6 +57,7 @@ Or, if you are using cli
 antlion --build <contract>
 antlion --compare <name>... --report <report>... [--detail | --dump]
 antlion --help
+antlion --version
 ```
 
 ## Example

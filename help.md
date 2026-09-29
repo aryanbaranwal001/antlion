@@ -6,12 +6,14 @@ USAGE
     antlion --build <contract>
     antlion --compare <name>... --report <report>... [--detail | --dump]
     antlion --help
+    antlion --version
 
 COMMANDS
 
     --build <contract>    compile <contract>/{sdk,solang} into out/<name>/
     --compare <name>...   diff both builds of each contract, in the order given
     --help                print this help
+    --version             print the version
 
     --build takes a path to the pair directory, relative to the working directory
     unless absolute. There is no fallback: a bare `flow` means ./flow. <name> is

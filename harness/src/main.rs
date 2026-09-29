@@ -6,14 +6,16 @@ mod build;
 mod compare;
 mod wasm;
 
+const VERSION: &str = "antlion version v0.1.0";
+
 fn main() {
     let mut args = env::args().skip(1);
-    let usage =
-        "[err] usage: --build <contract> | --compare <contract>... --report <report>... | --help";
+    let usage = "[err] usage: --build <contract> | --compare <contract>... --report <report>... | --help | --version";
     let cmd = args.next().expect(usage);
 
     match cmd.as_str() {
         "--help" => print!("{}", include_str!("../../help.md")),
+        "--version" => println!("{VERSION}"),
         "--build" => {
             let arg = args.next().expect(usage);
             let dir = build::dir_of(&arg);
