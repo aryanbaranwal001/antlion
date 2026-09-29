@@ -121,6 +121,43 @@ pub enum Inputs {
 
 pub const ALL_INPUTS: [Inputs; 4] = [Inputs::Small, Inputs::Large, Inputs::Bound, Inputs::Neg];
 
+/// Ways to get a struct argument wrong. Every other argument stays at `small`, so any
+/// difference comes from the struct alone.
+#[derive(Clone, Copy)]
+pub enum Malformed {
+    /// A field the struct does not declare.
+    Extra,
+    /// The last declared field left out.
+    Missing,
+    /// The first declared field given a value of another type.
+    WrongType,
+    /// The right values in declaration order, as a vec rather than a map.
+    AsVec,
+}
+
+pub const ALL_MALFORMED: [Malformed; 4] = [
+    Malformed::Extra,
+    Malformed::Missing,
+    Malformed::WrongType,
+    Malformed::AsVec,
+];
+
+impl Malformed {
+    pub fn label(self) -> &'static str {
+        match self {
+            Malformed::Extra => "extra",
+            Malformed::Missing => "short",
+            Malformed::WrongType => "wrong",
+            Malformed::AsVec => "asvec",
+        }
+    }
+}
+
+/// Whether any input is a struct, so the malformed shapes apply.
+pub fn takes_struct(inputs: &[ScSpecTypeDef]) -> bool {
+    inputs.iter().any(|t| matches!(t, ScSpecTypeDef::Udt(_)))
+}
+
 impl Inputs {
     pub fn label(self) -> &'static str {
         match self {
@@ -149,6 +186,73 @@ pub fn build_args(
         .iter()
         .map(|t| arg_val(host, self_addr, iface, t, kind))
         .collect()
+}
+
+/// Arguments at `small`, except the first struct argument, which is built wrong in the way
+/// `m` says. Only its top level is wrong; a nested struct inside it stays well formed.
+pub fn build_malformed(
+    host: &Host,
+    self_addr: Val,
+    iface: &Interface,
+    inputs: &[ScSpecTypeDef],
+    m: Malformed,
+) -> Result<Vec<Val>, HostError> {
+    let mut done = false;
+    inputs
+        .iter()
+        .map(|t| match t {
+            ScSpecTypeDef::Udt(u) if !done => {
+                done = true;
+                let s = struct_of(iface, &u.name.to_utf8_string_lossy())
+                    .expect("[err] build_malformed called on an unknown struct");
+                malformed_val(host, self_addr, iface, s, m)
+            }
+            _ => arg_val(host, self_addr, iface, t, Inputs::Small),
+        })
+        .collect()
+}
+
+fn malformed_val(
+    host: &Host,
+    self_addr: Val,
+    iface: &Interface,
+    s: &StructSpec,
+    m: Malformed,
+) -> Result<Val, HostError> {
+    let mut fields = s
+        .fields
+        .iter()
+        .map(|(n, t)| {
+            Ok((
+                n.clone(),
+                arg_val(host, self_addr, iface, t, Inputs::Small)?,
+            ))
+        })
+        .collect::<Result<Vec<(String, Val)>, HostError>>()?;
+
+    match m {
+        Malformed::AsVec => {
+            let vals: Vec<Val> = fields.iter().map(|(_, v)| *v).collect();
+            return Ok(host.vec_new_from_slice(&vals)?.to_val());
+        }
+        Malformed::Extra => fields.push(("zzz".to_string(), Val::from_u32(1).to_val())),
+        Malformed::Missing => {
+            fields.pop();
+        }
+        Malformed::WrongType => {
+            // An `i32` where anything else is declared, a `u32` where an `i32` is.
+            let wrong = match s.fields[0].1 {
+                ScSpecTypeDef::I32 => Val::from_u32(1).to_val(),
+                _ => Val::from_i32(1).to_val(),
+            };
+            fields[0].1 = wrong;
+        }
+    }
+
+    fields.sort_by(|a, b| a.0.cmp(&b.0));
+    let keys: Vec<&str> = fields.iter().map(|(n, _)| n.as_str()).collect();
+    let vals: Vec<Val> = fields.iter().map(|(_, v)| *v).collect();
+    Ok(host.map_new_from_slices(&keys, &vals)?.to_val())
 }
 
 fn struct_of<'a>(iface: &'a Interface, name: &str) -> Option<&'a StructSpec> {

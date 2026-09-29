@@ -1,7 +1,7 @@
 use soroban_env_host::{
-    Env, EnvBase, Host, HostError, Symbol, TryFromVal,
+    Env, EnvBase, Host, HostError, Symbol, TryFromVal, Val,
     testutils::{generate_account_id, generate_bytes_array},
-    xdr::{ScSpecTypeDef, ScVal},
+    xdr::ScVal,
 };
 
 use crate::wasm::{Contract, spec};
@@ -41,38 +41,21 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
         }
 
         for kind in spec::ALL_INPUTS {
-            let s = invoke(sdk.wasm, &sdk.interface, &f.name, &f.inputs, kind);
-            let l = invoke(solang.wasm, &sdk.interface, &f.name, &f.inputs, kind);
+            let args = |h: &Host, addr| spec::build_args(h, addr, &sdk.interface, &f.inputs, kind);
+            let s = invoke(sdk.wasm, &f.name, args);
+            let l = invoke(solang.wasm, &f.name, args);
+            row(&f.name, kind.label(), &s, &l, &mut checked, &mut differ);
+        }
 
-            let verdict = match (&s, &l) {
-                (Ok(a), Ok(b)) => {
-                    checked += 1;
-                    if a == b {
-                        "same"
-                    } else {
-                        differ += 1;
-                        "DIFFER"
-                    }
-                }
-                (Err(_), Err(_)) => "both failed",
-                (Err(_), Ok(_)) => "sdk failed",
-                (Ok(_), Err(_)) => "solang failed",
-            };
-
-            println!(
-                "{:<NAME$} {:<KIND$} {:<VALUE$} {:<VALUE$} {}",
-                f.name,
-                kind.label(),
-                show(&s),
-                show(&l),
-                verdict
-            );
-
-            // A truncated column is fine when the two agree. When they do not, the
-            // difference is the whole point, so print both in full.
-            if verdict == "DIFFER" {
-                println!("{:>NAME$}   sdk    {}", "", full(&s));
-                println!("{:>NAME$}   solang {}", "", full(&l));
+        // A struct argument is also sent in shapes neither side should accept. Both
+        // rejecting is the expected answer; one side accepting is the divergence.
+        if spec::takes_struct(&f.inputs) {
+            for m in spec::ALL_MALFORMED {
+                let args =
+                    |h: &Host, addr| spec::build_malformed(h, addr, &sdk.interface, &f.inputs, m);
+                let s = invoke(sdk.wasm, &f.name, args);
+                let l = invoke(solang.wasm, &f.name, args);
+                row(&f.name, m.label(), &s, &l, &mut checked, &mut differ);
             }
         }
     }
@@ -82,20 +65,61 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-/// Deploy `wasm`, call `func` with synthesized arguments, and return what it answered.
+/// Print one row and tally it. Only calls that ran on both sides count as checked.
+fn row(
+    func: &str,
+    label: &str,
+    s: &Result<ScVal, HostError>,
+    l: &Result<ScVal, HostError>,
+    checked: &mut usize,
+    differ: &mut usize,
+) {
+    let verdict = match (s, l) {
+        (Ok(a), Ok(b)) => {
+            *checked += 1;
+            if a == b {
+                "same"
+            } else {
+                *differ += 1;
+                "DIFFER"
+            }
+        }
+        (Err(_), Err(_)) => "both failed",
+        (Err(_), Ok(_)) => "sdk failed",
+        (Ok(_), Err(_)) => "solang failed",
+    };
+
+    println!(
+        "{:<NAME$} {:<KIND$} {:<VALUE$} {:<VALUE$} {}",
+        func,
+        label,
+        show(s),
+        show(l),
+        verdict
+    );
+
+    // A truncated column is fine when the two agree. When they do not, the difference is
+    // the whole point, so print both in full.
+    if verdict == "DIFFER" {
+        println!("{:>NAME$}   sdk    {}", "", full(s));
+        println!("{:>NAME$}   solang {}", "", full(l));
+    }
+}
+
+/// Deploy `wasm`, call `func` with the arguments `args` builds, and return what it answered.
+/// `args` gets the host and the contract's own address, because object handles belong to
+/// the host that runs the call.
 fn invoke(
     wasm: &[u8],
-    iface: &spec::Interface,
     func: &str,
-    inputs: &[ScSpecTypeDef],
-    kind: spec::Inputs,
+    args: impl Fn(&Host, Val) -> Result<Vec<Val>, HostError>,
 ) -> Result<ScVal, HostError> {
     let host = Host::test_host_with_recording_footprint();
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
 
-    let args = spec::build_args(&host, contract.to_val(), iface, inputs, kind)?;
+    let args = args(&host, contract.to_val())?;
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
     let argv = host.vec_new_from_slice(&args)?;
 

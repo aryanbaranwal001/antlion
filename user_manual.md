@@ -129,6 +129,19 @@ Each function runs four times:
 | `bound` | the largest value that still fits inline, and type extremes |
 | `neg` | negatives, zeros and empty sequences |
 
+A function that takes a struct also runs with the struct in four shapes neither side
+should accept, every other argument at `small`:
+
+| Shape | Sends |
+|---|---|
+| `extra` | a field the struct does not declare |
+| `short` | the struct without its last field |
+| `wrong` | the first field as the wrong type |
+| `asvec` | the right values as a vec rather than a map |
+
+For these rows `both failed` is the expected answer, and `sdk failed` means solang accepted
+what the sdk rejected.
+
 A row reading `DIFFER` prints both values in full underneath. A call that fails prints its
 `HostError` in place of the value.
 
