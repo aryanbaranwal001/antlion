@@ -13,6 +13,10 @@ struct Cost {
 
 /// Invoke every function on both builds and compare metered cost. Each call gets a
 /// fresh host, so every function is measured against empty storage.
+///
+/// The module is put in the host's module cache before the call, as the network keeps
+/// every live contract parsed (CAP-0065, protocol 23). So a call pays for instantiating the
+/// module but not for parsing it, which is charged once at upload instead.
 pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     super::banner("runtime cost per call");
 
@@ -68,6 +72,7 @@ fn measure(
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
     let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
+    host.ensure_module_cache_contains_host_storage_contracts()?;
 
     let args = spec::build_args(&host, contract.to_val(), iface, inputs, spec::Inputs::Small)?;
 

@@ -30,7 +30,7 @@ REPORTS
     imports     which host functions each side imports
     interface   every exported function's signature
     returns     what each function answers, side by side
-    cost        metered cost of calling each function, on a fresh host
+    cost        metered cost of calling each function, module cached as on chain
     ledger      what each function leaves in storage: class, key and value
     opcodes     opcode histogram, bucketed by kind
     functions   per-function size and complexity

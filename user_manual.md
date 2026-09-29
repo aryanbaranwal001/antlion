@@ -154,10 +154,12 @@ A row reading `DIFFER` prints both values in full underneath. A call that fails 
 
 ### cost
 
-CPU instructions and memory bytes charged for one call, on a fresh host.
+CPU instructions and memory bytes charged for one call, on a fresh host, with the module
+already in the host's module cache. The network keeps every live contract parsed
+(CAP-0065, protocol 23), so a real call pays to instantiate the module but not to parse it.
 
-Absolute figures are dominated by virtual machine instantiation, so read the difference,
-not the total.
+Absolute figures are dominated by instantiating the module, so read the difference, not
+the total.
 
 ### ledger
 
