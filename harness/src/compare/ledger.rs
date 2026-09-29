@@ -130,20 +130,29 @@ fn snapshot(
     Ok(out)
 }
 
-/// An `ScVal` on one line: numbers bare, symbols bare, strings quoted, vecs as `[..]` and
-/// maps as `{k: v}`. Anything rarer falls back to its debug form.
+/// An `ScVal` on one line: numbers with their type as a suffix (`1u32`), symbols bare,
+/// strings quoted, vecs as `[..]` and maps as `{k: v}`. Anything rarer falls back to its
+/// debug form. The suffix matters: `U32(0)` and `U64(0)` are different keys.
 fn show(v: &ScVal) -> String {
     let list = |items: Vec<String>| items.join(", ");
 
     match v {
         ScVal::Bool(b) => b.to_string(),
         ScVal::Void => "void".to_string(),
-        ScVal::U32(n) => n.to_string(),
-        ScVal::I32(n) => n.to_string(),
-        ScVal::U64(n) => n.to_string(),
-        ScVal::I64(n) => n.to_string(),
-        ScVal::U128(p) => (((p.hi as u128) << 64) | p.lo as u128).to_string(),
-        ScVal::I128(p) => (((p.hi as i128) << 64) | p.lo as i128).to_string(),
+        ScVal::U32(n) => format!("{n}u32"),
+        ScVal::I32(n) => format!("{n}i32"),
+        ScVal::U64(n) => format!("{n}u64"),
+        ScVal::I64(n) => format!("{n}i64"),
+        ScVal::U128(p) => format!("{}u128", ((p.hi as u128) << 64) | p.lo as u128),
+        ScVal::I128(p) => format!("{}i128", ((p.hi as i128) << 64) | p.lo as i128),
+        ScVal::U256(p) if p.hi_hi == 0 && p.hi_lo == 0 => {
+            format!("{}u256", ((p.lo_hi as u128) << 64) | p.lo_lo as u128)
+        }
+        ScVal::I256(p) if p.hi_hi == 0 && p.hi_lo == 0 => {
+            format!("{}i256", ((p.lo_hi as u128) << 64) | p.lo_lo as u128)
+        }
+        ScVal::Timepoint(t) => format!("timepoint({})", t.0),
+        ScVal::Duration(d) => format!("duration({})", d.0),
         ScVal::Symbol(s) if s.0.is_empty() => "<empty symbol>".to_string(),
         ScVal::Symbol(s) => s.0.to_utf8_string_lossy(),
         ScVal::String(s) => format!("{:?}", s.0.to_utf8_string_lossy()),
