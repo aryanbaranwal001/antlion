@@ -226,7 +226,8 @@ Both options only work with `opcodes` and must come last.
 In `--dump`, the two columns are independent: each side is listed top to bottom in its own
 order, and the shorter one is padded. Nothing is lined up between them. Exported functions
 come first, grouped by name, then internal functions. Instructions use their raw
-WebAssembly names, such as `LocalGet` for `local.get`.
+WebAssembly names, such as `LocalGet` for `local.get`. A call is written `Call N`, and a
+call to a host function also names it, for example `Call 3 ; put_contract_data`.
 
 ### functions
 

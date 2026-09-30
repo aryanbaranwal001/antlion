@@ -4,9 +4,9 @@
 
 Prepared as part of the LFDT mentorship on comparing Solang to the Stellar Rust SDK.
 
-`antlion`, a differential harness that builds a contract written twice with the same
-semantics, once from the Rust `soroban-sdk` and once from Solidity through Solang, and then
-thoroughly compares the two WebAssembly modules.
+The results come from `antlion`, a differential harness. It builds a contract written twice
+with the same semantics, once with the Rust `soroban-sdk` and once in Solidity through
+Solang, and compares the two WebAssembly modules.
 
 ---
 
@@ -31,12 +31,12 @@ thoroughly compares the two WebAssembly modules.
 
 Solang compiles Solidity for Soroban, where the main toolchain is the Rust `soroban-sdk`.
 The two translate the same program differently: a different storage layout, different
-encoding and decoding of values, and different optimisation. Writing each contract twice,
-once in each language and with the same semantics, this evaluation compares:
+encoding and decoding of values, and different optimisation. Each contract here is written
+twice, once in each language with the same semantics, and the evaluation compares:
 
 - **Behaviour:** whether both builds return the same results for the same inputs.
 - **Storage and encoding:** how each build lays out state and encodes values.
-- **Runtime cost:** what each build costs to deploy and to run.
+- **Cost:** how big each build is and what it costs to run.
 - **Cost breakdown:** where each cost difference comes from.
 
 Seventeen contract pairs were built, each with identical exported function names on both
@@ -46,14 +46,14 @@ call, opcode histogram, per function complexity and declared memory layout.
 
 ### Results
 
-Thirteen findings, numbered by importance (lower number = greater importance).
+Thirteen findings, numbered from most to least important.
 Each carries a confidence level: high where the harness measures the claim directly, medium
 where the harness supports the claim but does not settle it, and further measurement could
 confirm or change it.
 
 - **F1: A wrongly typed argument is silently accepted.** Soroban leaves argument checking
   to the contract. The Rust build rejects any argument whose type does not match its
-  declaration. The Solang build does not check `u32`, `i32`, `bool` or `address` arguments,
+  declaration. The Solidity build does not check `u32`, `i32`, `bool` or `address` arguments,
   including struct fields, and reads whatever arrives as the declared type: an `i32` of `-1`
   sent for a `u32` is used as `4294967295`, and an `address` parameter accepts an `i32`
   ([Table 1](#table-1-scalar_id-a-wrongly-typed-argument-to-every-function)). No
@@ -67,8 +67,8 @@ confirm or change it.
   fails with `Error(Value, InvalidInput)` (Tables [7](#table-7-slots-the-storage-entries-after-each-function) and [8](#table-8-slots-results-either-side-of-the-limit)). A struct takes one slot per leaf
   field and a fixed size array one per element, so fewer than fifteen variables can reach
   the limit ([Table 7](#table-7-slots-the-storage-entries-after-each-function)).
-  The contract compiles and deploys without any warning, and the keys that do work sit
-  under `Bool`, `Void` and `Error` values (Tables [6](#table-6-storage-the-storage-class-and-key-of-each-variable) and [7](#table-7-slots-the-storage-entries-after-each-function)).
+  The contract compiles and deploys without any warning, and the keys that do work
+  include `Bool`, `Void` and `Error` values (Tables [6](#table-6-storage-the-storage-class-and-key-of-each-variable) and [7](#table-7-slots-the-storage-entries-after-each-function)).
 
 - **F3: A `storage` reference local ignores the storage class.** A Solidity local that
   aliases a state variable, `T storage r = x`, always uses persistent storage, whatever the
@@ -79,16 +79,17 @@ confirm or change it.
   copy.
 
 - **F4: Idiomatic code on each side writes to a different ledger namespace.** An
-  unannotated Solidity state variable lands in persistent storage, while the habit in Rust
-  is instance storage ([Table 6](#table-6-storage-the-storage-class-and-key-of-each-variable)). Both are documented behaviour, but porting a contract without
+  unannotated Solidity state variable lands in persistent storage, while Rust written like
+  the Soroban examples uses instance storage ([Table 6](#table-6-storage-the-storage-class-and-key-of-each-variable)). Both are documented behaviour, but porting a contract without
   noticing changes its storage lifetime and its rent.
 
 - **F5: A struct is one host value in Rust and one per field in Solidity.** Stored, it is a
   `Map` in Rust and a `Vec` in Solidity under a different key ([Table 13](#table-13-struct_store-the-stored-struct)), so neither contract
-  can read the other's struct, and Solang builds it one field at a time: 17 calls against 1
-  to write a four field struct ([Table 15](#table-15-struct_store-per-function-metrics)). At the boundary both use the same `Map`, so a Rust client can call a
+  can read the other's struct. Solang also writes it one field at a time, reading and
+  rewriting the stored struct for each field: 16 host calls against 2 to write a four field
+  struct ([Table 36](#table-36-struct_store-every-call-each-function-makes)). At the boundary both use the same `Map`, so a Rust client can call a
   Solidity contract with a struct, but Solang makes 9 host calls against 2 to pass one
-  through (Tables [2](#table-2-struct_id-malformed-struct-arguments) and [16](#table-16-struct_id-calls-per-function-and-host-functions-imported)). Either way the Rust build is 9,000 to 45,000 CPU instructions a
+  through (Tables [2](#table-2-struct_id-malformed-struct-arguments) and [37](#table-37-struct_id-every-call-each-function-makes)). Either way the Rust build is 9,000 to 45,000 CPU instructions a
   call cheaper ([Table 35](#table-35-runtime-cost-selected-functions-from-every-pair)).
 
 - **F6: A mapping is one ledger entry in Solidity and one per key in Rust.** The whole
@@ -98,7 +99,7 @@ confirm or change it.
   instructions a call cheaper ([Table 19](#table-19-mapping-cost-per-call)).
 
 - **F7: The error path is inlined at every trap site.** An error reporting sequence is
-  pasted at every trap site rather than called as a shared handler, about 37% of the
+  pasted at every trap site rather than called as a shared handler, about 38% of the
   instructions in a small module ([Table 20](#table-20-flow-one-trap-site-on-the-solidity-side)). It costs size only, with no effect on
   behaviour.
 
@@ -110,11 +111,11 @@ confirm or change it.
   ([Table 26](#table-26-vec_id-per-function-metrics-and-cost)). Both are
   measured at small sizes only.
 
-- **F9: A local struct is materialised rather than eliminated.** 16,000 to 17,000 more CPU
-  instructions a call for a struct the Rust build never creates ([Table 27](#table-27-struct_mem-per-function-metrics-memory-operations-and-cost)).
+- **F9: A local struct is materialised rather than eliminated.** The Solidity build costs
+  16,000 to 17,000 more CPU instructions a call for a struct the Rust build never creates ([Table 27](#table-27-struct_mem-per-function-metrics-memory-operations-and-cost)).
 
-- **F10: 229 bytes of toolchain metadata ship in every build.** Build provenance, none of
-  it read on chain. The Rust build carries 230 bytes of metadata of its own, which is why
+- **F10: 229 bytes of toolchain metadata ship in every build.** They record how the module
+  was built, and none of it is read on chain. The Rust build carries 230 bytes of metadata of its own, which is why
   the size gap on an empty contract is only 36 bytes ([Table 29](#table-29-baseline-bytes-per-section-of-an-empty-contract)).
 
 - **F11: Every aggregate state variable is written at deploy.** The Rust build writes
@@ -122,8 +123,8 @@ confirm or change it.
   mapping ([Table 30](#table-30-__constructor-on-the-solidity-side-per-pair)), and a `persistent` one pays rent from deploy rather than from first
   use.
 
-- **F12: A nested loop is executed rather than reduced to a multiply.** Linear against
-  quadratic for the same source. At runtime this shows only indirectly: at the largest
+- **F12: A nested loop is executed rather than reduced to a multiply.** The same source
+  runs in linear time on the Rust build and quadratic time on the Solidity build. At runtime this shows only indirectly: at the largest
   input the Solidity build runs until its budget is exhausted while the Rust build traps at
   once ([Table 31](#table-31-flow-the-nested-loop)). The loop here is the simplest possible case.
 
@@ -140,11 +141,11 @@ zeros, empty sequences, structs passed in and returned, mappings and authorizati
 produce identical results.
 
 **On size**, the Rust build is smaller in all seventeen pairs, from 36 bytes on an empty
-contract to 5,029 on the largest, with the ratio reaching 3.3x, mostly from F7 and F10
+contract to 5,029 on the largest, with the ratio reaching 3.3x; F7 and F10 are two of the causes
 ([Table 33](#table-33-module-size-every-pair)).
 
-**On runtime cost**, the Rust build is cheaper in eleven of sixteen pairs, by 600 to 45,000
-CPU instructions a call. The Solidity build is cheaper in three ([Table 35](#table-35-runtime-cost-selected-functions-from-every-pair)). See
+**On runtime cost**, the Rust build is cheaper in eleven of sixteen pairs, by 650 to 45,000
+CPU instructions a call. The Solidity build is cheaper in three, and two are mixed ([Table 35](#table-35-runtime-cost-selected-functions-from-every-pair)). See
 [How the runtime cost breaks down](#how-the-runtime-cost-breaks-down) for why.
 
 ---
@@ -159,11 +160,11 @@ CPU instructions a call. The Solidity build is cheaper in three ([Table 35](#tab
 | stellar-cli | 28.1.0 |
 | rustc | 1.92.0 |
 | Rust target | `wasm32v1-none` |
-| Harness | `antlion`, this repository |
+| antlion | `v0.1.0-3-g6c03470`, 3 commits past the v0.1.0 release |
 
 ### What is compared
 
-The artifact each toolchain ships, the final WebAssembly modules. Both sides are built
+What is compared is what each toolchain ships: the final WebAssembly module. Both sides are built
 the way they would be deployed, so everything each toolchain does counts.
 
 For the Rust side that means `stellar contract build`, which runs wasm-opt and trims
@@ -185,7 +186,7 @@ lto = true
 ```
 
 Every size figure depends on it. Without it the Rust build would carry debug symbols and
-skip link time optimisation, which a deployed contract does not. stellar-cli requires
+skip link time optimisation, neither of which a deployed contract does. stellar-cli requires
 `overflow-checks`.
 
 The profile also makes Rust trap on overflow, as Solidity 0.8 always does, so overflow
@@ -211,12 +212,12 @@ and ten reports compare them.
 | `returns` | the value each build answers, as an `ScVal` |
 | `cost` | CPU instructions and memory bytes charged for one call, module cached |
 | `ledger` | every storage entry after one call: class, key and value |
-| `opcodes` | instruction histogram by kind, with optional disassembly |
+| `opcodes` | instruction histogram by kind, with optional disassembly that names the host function each call goes to |
 | `functions` | per function bytes, instructions, locals, block depth, call count |
 | `layout` | declared linear memory pages, tables and globals |
 
 `returns`, `cost` and `ledger` run the contracts. Each call deploys the module into a fresh
-`soroban-env-host`, so every call starts from empty storage. The other reports read the
+`soroban-env-host`, so no call sees state left by another. The other reports read the
 module bytes.
 
 `cost` puts the module in the host's module cache before the measured call. The network
@@ -294,24 +295,24 @@ This section explains where the cost differences come from. Figures are CPU inst
 for one call with the module cached, from the `cost` report, checked against the
 `imports`, `functions` and `opcodes` reports.
 
-**Most of a call is fixed overhead.** The cheapest function measured, a single branch in
-`flow`, costs about 207,000 CPU instructions on the Rust build and 210,000 on the Solidity
-build. Every call pays at least that, so compare the difference between builds, not the
-totals.
+**Most of a call is fixed overhead.** A single branch in `flow` costs about 207,000 CPU
+instructions on the Rust build and 210,000 on the Solidity build, and the cheapest function
+measured, `struct_mem`'s `build`, still costs about 200,000. Every call pays at least that,
+so compare the difference between builds, not the totals.
 
 **Where the largest differences appear:**
 
 | What differs | Which side pays | Evidence |
 |---|---|---|
-| Host calls per struct field | Solidity: 9 host calls against 2 for one struct round trip, 17 calls against 1 to write a four field struct | F5, F6 |
-| Copying a list through linear memory | Solidity: `id` makes 9 calls against none in Rust, copying each element in and out | F8 |
+| Host calls per struct field | Solidity: 9 host calls against 2 to pass one struct through; 16 against 2 to write a four field struct, reading and rewriting it once per field | F5, F6 |
+| Copying a list through linear memory | Solidity: `vec_id`'s `id` makes 9 calls against none in Rust, copying each element in and out | F8 |
 | Guest memory | Solidity keeps memory aggregates in linear memory, about 65,000 to 68,000 more memory bytes a call; Rust keeps them as host objects | F8, F9 |
 
 **By what a function does**, the Rust build is cheaper by:
 
 | What the function does | Rust cheaper by |
 |---|---|
-| identity, arithmetic, control flow | 600 to 3,800 |
+| identity, arithmetic, control flow | 650 to 3,800 |
 | one storage write and read | 700 to 5,600 |
 | a struct or a map, stored or passed | 9,000 to 45,000 |
 | a struct built and discarded | 16,000 to 17,000 |
@@ -319,8 +320,8 @@ totals.
 
 The Solidity build is cheaper on `vec_mem` by about 12,000, on `struct_vec` by 2,000 to
 6,000, and on `slots` by 6,000 to 27,000. `scalar_store` and `location` are mixed. The
-harness reports cost per call, not by category, so for these three it shows that the
-Solidity build is cheaper but not which part of the call accounts for it. All of this is at
+harness reports cost per call, not by category, so for the three pairs where the Solidity
+build is cheaper it does not show which part of the call accounts for it. All of this is at
 `n = 1` for list and loop functions; see [Limitations](#limitations).
 
 ---
@@ -382,7 +383,7 @@ being a contract from the cost of any feature. Covered by `baseline`.
 
 ## Limitations
 
-These were not covered. These are gaps, which needs additional work.
+These were not covered. They are gaps that need more work.
 
 - **Only four values per type.** Each function is called with four value classes. No range
   is swept and no input is randomised, so other values may behave differently.
@@ -458,7 +459,7 @@ one.
 
 **What happens.** Soroban does not check call arguments against the contract
 specification; the contract has to check what arrives. The Rust build checks the type tag
-of every argument and traps on a mismatch. The Solang build checks `u64`, `i64`, `u128`
+of every argument and traps on a mismatch. The Solidity build checks `u64`, `i64`, `u128`
 and `i128`, and does not check `u32`, `i32`, `bool` or `address` at all. A value of the
 wrong type is read as the declared type, or passed through unchanged for `address`.
 
@@ -467,21 +468,27 @@ argument as the wrong type: `i32(-1)`, or `u32::MAX` where an `i32` is declared.
 `scalar_id` ([Table 1](#table-1-scalar_id-a-wrongly-typed-argument-to-every-function)):
 
 ```
-function      input   Rust                           Solidity           verdict
-u32_id        badarg  Error(WasmVm, InvalidAction)   U32(4294967295)    sdk failed
-i32_id        badarg  Error(WasmVm, InvalidAction)   I32(-1)            sdk failed
-bool_id       badarg  Error(WasmVm, InvalidAction)   Bool(true)         sdk failed
-address_id    badarg  Error(WasmVm, InvalidAction)   I32(-1)            sdk failed
-u64_id        badarg  Error(WasmVm, InvalidAction)   Error(Value, InvalidInput)   both failed
+function      input   Rust    Solidity                     verdict
+u32_id        badarg  [err]   U32(4294967295)              sdk failed
+i32_id        badarg  [err]   I32(-1)                      sdk failed
+bool_id       badarg  [err]   Bool(true)                   sdk failed
+address_id    badarg  [err]   I32(-1)                      sdk failed
+u64_id        badarg  [err]   [err]                        both failed
+                sdk     Error(WasmVm, InvalidAction)
+                solang  Error(Value, InvalidInput)
 i64_id, u128_id, i128_id: the same as u64_id
 ```
+
+`returns` prints a failing call's error in full only where both sides fail; there the Rust
+build's error is `Error(WasmVm, InvalidAction)`, a trap, and the Solidity build's is
+`Error(Value, InvalidInput)`, raised by the host.
 
 A struct field behaves the same way under the `wrong` shape: `get_x` answers
 `U32(4294967295)` on the Solidity build and fails on the Rust build ([Table 2](#table-2-struct_id-malformed-struct-arguments)). Across all
 pairs, 48 `badarg` rows ([Table 3](#table-3-badarg-rows-the-solidity-build-accepts-counted-per-pair)) and 2 `wrong` rows ([Table 2](#table-2-struct_id-malformed-struct-arguments)) show the Solidity build
-accepting an argument the Rust build rejected. In `flow`, `struct_mem`, `vec_mem` and
-`scalar_math`, more rows fail on both sides, but the Solidity build fails later, for example
-by running out of budget in a loop ([Table 4](#table-4-flow-and-vec_mem-calls-that-fail-on-both-sides-with-different-errors)).
+accepting an argument the Rust build rejected. In `flow` and `vec_mem`, more rows fail on
+both sides with different errors: the Solidity build accepts the value and fails later, by
+running out of budget or linear memory ([Table 4](#table-4-flow-and-vec_mem-calls-that-fail-on-both-sides-with-different-errors)).
 
 F13 shows the same from the disassembly: the decode of an unused argument of these four
 types is removed, because it is a plain mask and shift with nothing that can trap
@@ -533,14 +540,15 @@ v10 to v21                1   slots 16 to 27        Error(Value, InvalidInput)
 A struct takes one slot per leaf field, nested structs included, and a fixed size array
 one per element, but each is stored whole under its first slot. `v09` is only the tenth
 variable declared, and it fails. In the disassembly, the working `put_v08` and the failing
-`put_v09` are the same 160 bytes and differ only in the key constant, `14` against `15`
+`put_v09` are the same 160 bytes and differ only in the key constant, `14` against `15`,
+and two offsets into the error message data
 ([Table 9](#table-9-slots-put_v08-against-put_v09)). All four value classes fail on `v09` to `v21`: 52 failed calls ([Table 8](#table-8-slots-results-either-side-of-the-limit)).
 
 **Why it matters.** Fifteen slots is an ordinary contract size, and fewer variables fill it
 when they are structs or fixed size arrays. The contract compiles and deploys with no
 warning and fails only on the variables past the limit, so a test that uses only the first
 few passes. The keys that do work are unusual too: the state sits under `Bool`, `Void` and
-`Error` keys, which other tools will not look for.
+`Error` values rather than numbers or names.
 
 The workaround is to keep the state within fifteen slots. Grouping scalars into a struct
 does not help, since each field takes a slot.
@@ -581,7 +589,8 @@ via_storage   small  U32(1)           [err] Error(Value, InvalidInput)   solang 
 to a copy that was discarded. Only the alias fails, on all four value classes. The
 semantics Solang implements are right; the alias path is what breaks.
 
-In the disassembly, `direct` and `via_storage` differ in exactly three constants ([Table 11](#table-11-location-the-storage-class-passed-to-each-storage-call)): the
+In the disassembly, `direct` and `via_storage` differ in five constants: two offsets into
+the error message data, and three storage class constants ([Table 11](#table-11-location-the-storage-class-passed-to-each-storage-call)): the
 `StorageType` passed to `has_contract_data`, `get_contract_data` and `put_contract_data`.
 It is `2` (`Instance`) in `direct` and `1` (`Persistent`) in `via_storage`. The alias drops
 the variable's annotation and uses the default class. `location` repeats the test on a
@@ -595,7 +604,7 @@ temporary      direct_temp       via_storage_temp    Error(Value, InvalidInput)
 ```
 
 Every `direct` function works. `via_storage_temp` differs from `direct_temp` the same way,
-in three constants, `0` (`Temporary`) against `1`.
+with `0` (`Temporary`) against `1` in the three storage class constants.
 
 A struct alias fails the same way ([Table 10](#table-10-location-each-alias-and-its-direct-twin)). `struct_alias_write` writes a field through
 `Point storage r` and `struct_alias_read` reads one through it; both fail on an `instance`
@@ -627,7 +636,9 @@ classes.
 | soroban-sdk, as in its examples | `env.storage().instance()` | instance |
 
 **Evidence.** From the compiled code. Solang passes `StorageType` as a plain number, `0`
-temporary, `1` persistent, `2` instance, as the last argument of each storage call:
+temporary, `1` persistent, `2` instance, as the last argument of each storage call. The
+class each function passes to `put_contract_data`, `has_contract_data` and
+`get_contract_data`:
 
 ```
 put_instance      Instance    Instance    Instance
@@ -672,8 +683,9 @@ Rust       P       =>  {w: 1u32, x: 1u32, y: 1u32, z: 1u32}
 Solidity   false   =>  [1u32, 1u32, 1u32, 1u32]
 ```
 
-The Rust build packs the whole struct in one host call. Solang builds or reads the `Vec`
-one element at a time. The imports show the two approaches ([Table 14](#table-14-struct_store-host-functions-imported)):
+The Rust build packs the whole struct in one host call and stores it once. Solang reads and
+rewrites the stored `Vec` once for every field it touches. The imports show the two
+approaches ([Table 14](#table-14-struct_store-host-functions-imported)):
 
 ```
                               sdk   solang
@@ -681,27 +693,37 @@ map_new_from_linear_memory    yes    no
 vec_new, vec_put, vec_get      no   yes
 ```
 
-**Evidence.** Host calls per function, for a four field struct ([Table 15](#table-15-struct_store-per-function-metrics)):
+**Evidence.** Host calls when the call succeeds, for a four field struct. `--dump` names the
+host function each call goes to ([Table 36](#table-36-struct_store-every-call-each-function-makes)):
 
 ```
-function      sdk   solang
-write_one       2        5
-write_all       1       17
-read_one        1        4
-read_all        1       16
+function      Rust   Solidity   what Solang does
+write_one        5          4   one storage read, one vec_put, one storage write
+write_all        2         16   the same, once per field
+read_one         3          3   one storage read, one vec_get
+read_all         3         12   the same, once per field
 ```
 
-Writing four fields costs the Rust build one host call and the Solang build seventeen,
-nearly all of them `Vec` element operations. Reading four costs one against sixteen.
+A storage read is `has_contract_data` and `get_contract_data`; a write is
+`put_contract_data`. The Rust build reads with those two plus
+`sparse_map_unpack_to_linear_memory`, and writes with `map_new_from_linear_memory` plus
+`put_contract_data`. Writing four fields costs the Rust build one storage write and the
+Solidity build four reads and four writes of the same entry. For a single field Solang makes
+one host call fewer, and still costs 9,357 more CPU instructions
+([Table 35](#table-35-runtime-cost-selected-functions-from-every-pair)).
+
+The `functions` report's `calls` column ([Table 15](#table-15-struct_store-per-function-metrics))
+counts every call instruction instead: on the Rust side the calls into its helpers, on the
+Solidity side the host calls above plus the calls that log an error.
 
 A struct inside a stored list is encoded the same way: a `Vec` of `Map`s in Rust, a `Vec`
 of `Vec`s in Solidity (`struct_vec`). The storage class annotation works for a struct in
 every class (`struct_class`).
 
 At the contract boundary, both sides encode a struct as the same `Map` keyed by field name,
-and all 16 `struct_id` calls agree, so a Rust client can call a Solidity contract with a
-struct argument. Only the cost differs. Host calls when the call succeeds, for a two field
-struct ([Table 16](#table-16-struct_id-calls-per-function-and-host-functions-imported)):
+and all 16 calls to `struct_id` with the four value classes agree, so a Rust client can
+call a Solidity contract with a struct argument. Only the cost differs. Host calls when the call succeeds, for a two field
+struct ([Table 37](#table-37-struct_id-every-call-each-function-makes)):
 
 ```
 function   Rust   Solidity   what Solang does
@@ -711,7 +733,7 @@ id            2          9   both of the above
 ```
 
 Solang creates every key symbol at runtime, including one letter keys that fit a
-`SymbolSmall`. `id` costs 31,165 more CPU instructions on the Solang build, and the nested
+`SymbolSmall`: it imports `symbol_new_from_linear_memory` ([Table 16](#table-16-struct_id-calls-per-function-and-host-functions-imported)). `id` costs 31,165 more CPU instructions on the Solidity build, and the nested
 `id_outer` 45,414 more ([Table 17](#table-17-struct_id-cost-per-call)).
 
 **Why it matters.** Cost, and compatibility of stored data. In storage the two builds use a
@@ -719,8 +741,10 @@ different key and a different encoding, so neither contract can read the other's
 At the boundary the encoding matches and only the cost differs.
 
 **Recommendation.** None needed for correctness. Building a struct with
-`map_new_from_linear_memory` and reading it with `map_unpack_to_linear_memory`, as the Rust
-build does, would replace the per field calls with one.
+`map_new_from_linear_memory` and reading it with `sparse_map_unpack_to_linear_memory`, as the
+Rust build does, would replace the per field calls with one, and reading and writing a
+stored struct once per call, not once per field, would remove the repeated storage
+round trips.
 
 ---
 
@@ -764,10 +788,10 @@ size and remove the entry size limit.
 
 ### F7: The error path is inlined at every trap site
 
-**Area:** size. **Confidence:** high. **Contracts:** every Solang build.
+**Area:** size. **Confidence:** high. **Contracts:** every Solidity build.
 
-**What happens.** The Rust build traps with a bare `unreachable` and imports nothing at
-all. The Solang build calls the host to log a message at each failure site, then traps
+**What happens.** In `flow`, the Rust build traps with a bare `unreachable` and imports
+nothing at all. The Solidity build calls the host to log a message at each failure site, then traps
 ([Table 20](#table-20-flow-one-trap-site-on-the-solidity-side)).
 
 ```
@@ -794,18 +818,17 @@ arithmetic and touches nothing (Tables [20](#table-20-flow-one-trap-site-on-the-
 imports                                   0        1
 trap sites                                8       15
 host calls before a trap                  0       15
-total instructions in the module        216      481
+total instructions in the module        211      474
 ```
 
-Roughly 180 of the Solang build's 481 instructions, about 37% of the module, are copies of
-that block. It also accounts for the data section: 272 bytes of message strings on the
-Solang build of `scalar_id` against none on the Rust build ([Table 22](#table-22-scalar_id-bytes-per-section)).
+180 of the Solidity build's 474 instructions, about 38% of the module, are copies of that
+block: 12 instructions at each of the 15 trap sites. It also accounts for the data section: 272 bytes of message strings on the
+Solidity build of `scalar_id` against none on the Rust build ([Table 22](#table-22-scalar_id-bytes-per-section)).
 
-**Why it matters.** Module size, and with it deployment and instantiation cost. It has no
+**Why it matters.** Module size, and with it the cost of deploying the contract. It has no
 effect on behaviour.
 
-**Recommendation.** Emit one shared handler and call it. This is the larger of the two size
-findings, and the change is local.
+**Recommendation.** Emit one shared handler and call it. The change is local.
 
 ---
 
@@ -825,7 +848,7 @@ vec_len           yes    no
 log                no   yes
 ```
 
-The Solang build imports no vector host functions. A `uint32[] memory` is allocated in the
+The Solidity build imports no vector host functions. A `uint32[] memory` is allocated in the
 module's own linear memory, and each element is a store. The Rust `Vec<u32>` is a handle to
 an object held by the host, so the data never enters the module.
 
@@ -845,11 +868,12 @@ it does show is what differs: the Rust build imports four vector host functions 
 the list on the host, the Solidity build imports none and does the work in its own linear
 memory. How either side scales with the length of the list was not measured.
 
-The Solidity module is 3.3 times larger, the widest ratio of any pair, mostly in helper
-functions: 57 bytes on the Rust build against 910 on the Solidity build ([Table 25](#table-25-vec_mem-size-and-per-function-metrics)).
+The Solidity module is 3.3 times larger, the widest ratio of any pair. Most of the code
+difference is in helper functions: 57 bytes on the Rust build against 910 on the Solidity
+build. Most of the rest is the 622 byte data section, which holds the error messages of F7 ([Table 25](#table-25-vec_mem-size-and-per-function-metrics)).
 
 A list at the contract boundary is copied the same way (`vec_id`). The Rust build returns
-the handle it was given; the Solang build reads every element into linear memory and builds
+the handle it was given; the Solidity build reads every element into linear memory and builds
 a new list to return ([Table 26](#table-26-vec_id-per-function-metrics-and-cost)):
 
 ```
@@ -861,8 +885,8 @@ sum                 2               11    230,579        256,268    -25,689
 
 These are measured with the `small` input, a list of three elements.
 
-**Why it matters.** Cost, for every array, string and bytes value a Solidity contract
-handles.
+**Why it matters.** Cost, for every `memory` array a Solidity contract handles. Strings
+and bytes may be handled the same way, but no pair tests them.
 
 **Recommendation.** None needed for correctness. Passing a list at the boundary through as a
 host object, instead of copying it into linear memory and back, would remove the per
@@ -876,11 +900,11 @@ element copy. For a one element list built inside a call, linear memory measured
 
 **What happens.** `build(a)` constructs `Point { x: a, y: a }` and returns `p.x + p.y`.
 
-The Solang build allocates and stores it ([Table 28](#table-28-struct_mem-the-body-of-build)):
+The Solidity build allocates and stores it ([Table 28](#table-28-struct_mem-the-body-of-build)):
 
 ```
 I32Const 8
-Call 1              ; allocate 8 bytes
+Call 1              ; an internal helper that allocates 8 bytes
 I32Store            ; write y
 I32Store            ; write x
 ```
@@ -889,8 +913,16 @@ The Rust build has no struct. After the tag check the whole body is:
 
 ```
 LocalGet 0
+I64Const 0
+I64LtS
+BrIf 1              ; trap if a + a would overflow u32
+LocalGet 0
 I64Const 1
 I64Shl              ; a + a, as a shift
+I64Const -8589934592
+I64And
+I64Const 4
+I64Or               ; tag the result as a u32
 ```
 
 rustc replaces the struct with its fields and then folds the addition. Across the module,
@@ -907,33 +939,35 @@ build      199813       215835      1121424      1189083
 nested     199861       216839      1121424      1189083
 ```
 
-About 16,000 more CPU instructions and 68,000 more memory bytes per call.
+16,000 to 17,000 more CPU instructions and about 68,000 more memory bytes a call.
 
 **Why it matters.** Cost. A throwaway struct is free in Rust and not in Solidity.
 
-**Recommendation.** None needed for correctness. It has the same cause as F8.
+**Recommendation.** None needed for correctness. Replacing a local struct that never
+leaves the function with its fields, as rustc does, would remove the allocation.
 
 ---
 
 ### F10: 229 bytes of toolchain metadata ship in every build
 
-**Area:** size. **Confidence:** high. **Contracts:** every Solang build.
+**Area:** size. **Confidence:** high. **Contracts:** every Solidity build.
 
 **What happens.** Section breakdown of an empty contract with no functions ([Table 29](#table-29-baseline-bytes-per-section-of-an-empty-contract)):
 
 ```
-section                    sdk  solang
-custom:producers             0     142
-custom:target_features       0      44
-custom:name                  0      43
-custom:contractspecv0       15      55
-custom:contractenvmetav0    30      30
-custom:contractmetav0      230       0
-export                      41      26
-global                      25       9
-everything else              3      29
-                          ----    ----
-total                      367     403
+section                       sdk  solang
+custom:producers                0     142
+custom:target_features          0      44
+custom:name                     0      43
+custom:contractspecv0          15      55
+custom:contractenvmetav0       30      30
+custom:contractmetav0         230       0
+export                         41      26
+global                         25       9
+everything else                 3      21
+module and section headers     23      33
+                             ----    ----
+total                         367     403
 ```
 
 `producers`, `target_features` and `name` record how the module was built: which compiler,
@@ -977,7 +1011,7 @@ mapping                         38       4   two mappings
 struct_store                    53       6   one four field struct
 struct_vec                      21       2   one list of structs
 struct_class                   103      12   one struct in each storage class
-slots                          173      21   a mapping, an array, three structs and arrays
+slots                          173      21   a mapping, an array, two structs, a fixed size array
 auth                            21       2   one mapping
 ```
 
@@ -998,7 +1032,7 @@ would remove the writes at deploy.
 
 The Rust build does not perform the accumulation. The returned value is computed directly
 with one `I32Mul`, and what remains of the loop is an overflow guard that runs `n` times.
-The Solang build keeps both loops and executes all n squared iterations.
+The Solidity build keeps both loops and executes all n squared iterations.
 
 ```
                    sdk   solang
@@ -1051,7 +1085,7 @@ is decoded and thrown away. Bytes spent on that second argument, from [Table 32]
 | u64 | +19 | +32 |
 | u128, i128 | +25 | +73 |
 
-The Rust build pays every time. The Solang build pays for the 64 and 128 bit types and
+The Rust build pays every time. The Solidity build pays for the 64 and 128 bit types and
 nothing else.
 
 **Why it matters.** Not directly. It shows where validation happens. Unused code can only
@@ -1085,9 +1119,10 @@ gives the command that reproduces it.
    The alias passes `Persistent` instead of the variable's own class.
 
 4. **Build and read a struct in one host call.** Solang reads and writes a struct one
-   field at a time and creates every key symbol at runtime. This is the largest cost
-   difference measured, 9,000 to 45,000 CPU instructions a call (F5). The Rust build uses
-   `map_new_from_linear_memory` and `map_unpack_to_linear_memory` for the same work.
+   field at a time, creates every key symbol at runtime, and reads and rewrites a stored
+   struct once per field. This is the largest cost difference measured, 9,000 to 45,000
+   CPU instructions a call (F5). The Rust build uses `map_new_from_linear_memory` and
+   `sparse_map_unpack_to_linear_memory` for the same work.
 
 5. **Store a mapping as one entry per key.** A whole mapping in one ledger entry means
    every access loads and stores all of it, and bounds the mapping by the entry size limit
@@ -1097,7 +1132,7 @@ gives the command that reproduces it.
    and back costs 26,000 to 36,000 CPU instructions a call (F8).
 
 7. **Emit one shared error handler and strip the build metadata sections.** F7 and F10
-   account for most of the size gap, and neither affects behaviour.
+   both add size to every Solidity contract, and neither affects behaviour.
 
 8. **Consider warning on a state variable with no storage annotation.** F4 is documented
    behaviour, not a defect, but it is an easy mistake when moving between the two
@@ -1136,30 +1171,48 @@ No finding calls for a change to the Rust SDK.
 ## Appendix B: Harness Output
 
 Each table is antlion's own output, cut to the rows the report uses; `...` marks rows left
-out. The first line of each is the command that produces it. Where the command has
+out. Above each is the command that produces it. Where the command has
 `<pair>`, it is run once per pair and the table gathers one row from each. Run
 `antlion --build contracts/<name>` for each pair first.
 
 ### Table 1: `scalar_id`, a wrongly typed argument to every function
 
+```sh
+antlion --compare scalar_id --report returns
 ```
-$ antlion --compare scalar_id --report returns
 
+```
 function        input  sdk                      solang                   verdict
 i32_id          badarg [err] HostError: Error…  I32(-1)                  sdk failed
 i64_id          badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 u32_id          badarg [err] HostError: Error…  U32(4294967295)          sdk failed
 u64_id          badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 bool_id         badarg [err] HostError: Error…  Bool(true)               sdk failed
 i128_id         badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 i32_id2         badarg [err] HostError: Error…  I32(-1)                  sdk failed
 i64_id2         badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 u128_id         badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 u32_id2         badarg [err] HostError: Error…  U32(4294967295)          sdk failed
 u64_id2         badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 bool_id2        badarg [err] HostError: Error…  Bool(true)               sdk failed
 i128_id2        badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 u128_id2        badarg [err] HostError: Error…  [err] HostError: Error…  both failed
+                  sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
+                  solang [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 address_id      badarg [err] HostError: Error…  I32(-1)                  sdk failed
 address_id2     badarg [err] HostError: Error…  I32(-1)                  sdk failed
 ...
@@ -1168,9 +1221,11 @@ note: 66 call(s) ran on both sides, 0 disagreed
 
 ### Table 2: `struct_id`, malformed struct arguments
 
+```sh
+antlion --compare struct_id --report returns
 ```
-$ antlion --compare struct_id --report returns
 
+```
 function        input  sdk                      solang                   verdict
 id              extra  Map(Some(ScMap(VecM([S…  Map(Some(ScMap(VecM([S…  same
 id              short  [err] HostError: Error…  [err] HostError: Error…  both failed
@@ -1204,9 +1259,11 @@ note: 19 call(s) ran on both sides, 0 disagreed
 
 ### Table 3: `badarg` rows the Solidity build accepts, counted per pair
 
+```sh
+antlion --compare <pair> --report returns
 ```
-$ antlion --compare <pair> --report returns
 
+```
 pair            badarg rows ending in sdk failed
 scalar_id         8
 scalar_math       2
@@ -1226,9 +1283,11 @@ total            48
 
 ### Table 4: `flow` and `vec_mem`, calls that fail on both sides with different errors
 
+```sh
+antlion --compare flow vec_mem --report returns
 ```
-$ antlion --compare flow vec_mem --report returns
 
+```
 function        input  sdk                      solang                   verdict
 nested          large  [err] HostError: Error…  [err] HostError: Error…  both failed
                   sdk    [err] HostError: Error(WasmVm, InvalidAction) DebugInfo not available
@@ -1246,9 +1305,11 @@ push            badarg [err] HostError: Error…  [err] HostError: Error…  bot
 
 ### Table 5: `auth`, with and without authorization
 
+```sh
+antlion --compare auth --report returns
 ```
-$ antlion --compare auth --report returns
 
+```
 function        input  sdk                      solang                   verdict
 no_auth         small  U32(1)                   U32(1)                   same
 no_auth         large  U32(1)                   U32(1)                   same
@@ -1277,9 +1338,11 @@ note: 7 call(s) ran on both sides, 0 disagreed
 
 ### Table 6: `storage`, the storage class and key of each variable
 
+```sh
+antlion --compare storage --report ledger
 ```
-$ antlion --compare storage --report ledger
 
+```
 put_instance(u32) -> u32
 side    class       key                    value
 sdk     instance    INST                   1u32
@@ -1307,9 +1370,11 @@ layout: differs
 
 ### Table 7: `slots`, the storage entries after each function
 
+```sh
+antlion --compare slots --report ledger
 ```
-$ antlion --compare slots --report ledger
 
+```
 put_m(u32) -> u32
 sdk     instance    [M, 1u32]              1u32
 solang  instance    false                  {1u32: 1u32}
@@ -1375,9 +1440,11 @@ solang  [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 
 ### Table 8: `slots`, results either side of the limit
 
+```sh
+antlion --compare slots --report returns
 ```
-$ antlion --compare slots --report returns
 
+```
 function        input  sdk                      solang                   verdict
 put_v08         small  U32(1)                   U32(1)                   same
 put_v08         large  U32(4294967295)          U32(4294967295)          same
@@ -1395,9 +1462,11 @@ note: 36 call(s) ran on both sides, 0 disagreed
 
 ### Table 9: `slots`, `put_v08` against `put_v09`
 
+```sh
+antlion --compare slots --report functions opcodes --dump
 ```
-$ antlion --compare slots --report functions opcodes --dump
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 put_v08           8   160  -152 │     4    66   -62 │    0    1   -1 │    0    3   -3 │    1    5   -4
@@ -1405,22 +1474,24 @@ put_v09           8   160  -152 │     4    66   -62 │    0    1   -1 │    
 
 Solidity side of --dump, put_v08:
 I64Const { value: 14 }
-Call { function_index: 3 }
+Call 3 ; put_contract_data
 I64Const { value: 14 }
-Call { function_index: 0 }
+Call 0 ; has_contract_data
 
 Solidity side of --dump, put_v09:
 I64Const { value: 15 }
-Call { function_index: 3 }
+Call 3 ; put_contract_data
 I64Const { value: 15 }
-Call { function_index: 0 }
+Call 0 ; has_contract_data
 ```
 
 ### Table 10: `location`, each alias and its direct twin
 
+```sh
+antlion --compare location --report returns ledger
 ```
-$ antlion --compare location --report returns
 
+```
 function        input  sdk                      solang                   verdict
 direct          small  U32(1)                   U32(1)                   same
 via_memory      small  U32(7)                   U32(7)                   same
@@ -1434,35 +1505,49 @@ struct_alias_read small  U32(1)                   [err] HostError: Error…  sol
 struct_alias_write small  U32(1)                   [err] HostError: Error…  solang failed
 ...
 note: 24 call(s) ran on both sides, 0 disagreed
+
+From --report ledger, the functions that fail:
+via_storage(u32) -> u32
+solang  [err] HostError: Error(Value, InvalidInput) DebugInfo not available
+via_storage_temp(u32) -> u32
+solang  [err] HostError: Error(Value, InvalidInput) DebugInfo not available
+struct_alias_write(u32) -> u32
+solang  [err] HostError: Error(Value, InvalidInput) DebugInfo not available
+struct_alias_read(u32) -> u32
+solang  [err] HostError: Error(Value, InvalidInput) DebugInfo not available
 ```
 
 ### Table 11: `location`, the storage class passed to each storage call
 
+```sh
+antlion --compare location --report opcodes --dump
 ```
-$ antlion --compare location --report opcodes --dump
 
+```
 Solidity side, direct:
 I64Const { value: 2 }
-Call { function_index: 0 }
+Call 0 ; has_contract_data
 I64Const { value: 2 }
-Call { function_index: 1 }
+Call 1 ; get_contract_data
 I64Const { value: 2 }
-Call { function_index: 4 }
+Call 4 ; put_contract_data
 
 Solidity side, via_storage:
 I64Const { value: 1 }
-Call { function_index: 0 }
+Call 0 ; has_contract_data
 I64Const { value: 1 }
-Call { function_index: 1 }
+Call 1 ; get_contract_data
 I64Const { value: 1 }
-Call { function_index: 4 }
+Call 4 ; put_contract_data
 ```
 
 ### Table 12: `storage`, cost per call
 
+```sh
+antlion --compare storage --report cost
 ```
-$ antlion --compare storage --report cost
 
+```
 put_instance(u32) -> u32
 metric              sdk       solang         diff
 cpu insns        233345       234575        -1230
@@ -1483,9 +1568,11 @@ mem bytes       1126191      1127862        -1671
 
 ### Table 13: `struct_store`, the stored struct
 
+```sh
+antlion --compare struct_store --report ledger
 ```
-$ antlion --compare struct_store --report ledger
 
+```
 write_all(u32)
 side    class       key                    value
 sdk     instance    P                      {w: 1u32, x: 1u32, y: 1u32, z: 1u32}
@@ -1501,9 +1588,11 @@ layout: differs
 
 ### Table 14: `struct_store`, host functions imported
 
+```sh
+antlion --compare struct_store --report imports
 ```
-$ antlion --compare struct_store --report imports
 
+```
 import   function                                         sdk   solang
 l.0      has_contract_data                                  ✓        ✓
 l.1      get_contract_data                                  ✓        ✓
@@ -1520,9 +1609,11 @@ total                                                       5        8
 
 ### Table 15: `struct_store`, per function metrics
 
+```sh
+antlion --compare struct_store --report functions
 ```
-$ antlion --compare struct_store --report functions
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 read_all         94   434  -340 │    51   184  -133 │    3    6   -3 │    2    4   -2 │    1   16  -15
@@ -1535,9 +1626,11 @@ __constructor     —    53     — │     —    15     — │    —    0   
 
 ### Table 16: `struct_id`, calls per function and host functions imported
 
+```sh
+antlion --compare struct_id --report functions imports
 ```
-$ antlion --compare struct_id --report functions imports
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 get_x            62   243  -181 │    33    94   -61 │    1    2   -1 │    1    3   -2 │    1    8   -7
@@ -1560,9 +1653,11 @@ total                                                       2        5
 
 ### Table 17: `struct_id`, cost per call
 
+```sh
+antlion --compare struct_id --report cost
 ```
-$ antlion --compare struct_id --report cost
 
+```
 id(Point) -> Point
 metric              sdk       solang         diff
 cpu insns        234172       265337       -31165
@@ -1583,9 +1678,11 @@ mem bytes       1191329      1194493        -3164
 
 ### Table 18: `mapping`, the stored mapping
 
+```sh
+antlion --compare mapping --report ledger
 ```
-$ antlion --compare mapping --report ledger
 
+```
 put(u32, u32) -> u32
 side    class       key                    value
 sdk     instance    [M, 1u32]              1u32
@@ -1610,9 +1707,11 @@ layout: differs
 
 ### Table 19: `mapping`, cost per call
 
+```sh
+antlion --compare mapping --report cost
 ```
-$ antlion --compare mapping --report cost
 
+```
 get(u32) -> u32
 metric              sdk       solang         diff
 cpu insns        264219       279154       -14935
@@ -1633,9 +1732,11 @@ mem bytes       1194972      1133002       +61970
 
 ### Table 20: `flow`, one trap site on the Solidity side
 
+```sh
+antlion --compare flow --report opcodes --dump
 ```
-$ antlion --compare flow --report opcodes --dump
 
+```
 Solidity side, nested:
 I32Const { value: 1408 }
 I64ExtendI32U
@@ -1647,16 +1748,18 @@ LocalTee { local_index: 0 }
 I64Const { value: 219043332100 }
 LocalGet { local_index: 0 }
 I64Const { value: 4 }
-Call { function_index: 0 }
+Call 0 ; log_from_linear_memory
 Drop
 Unreachable
 ```
 
 ### Table 21: `flow`, instruction histogram
 
+```sh
+antlion --compare flow --report opcodes
 ```
-$ antlion --compare flow --report opcodes
 
+```
 kind                     sdk  solang    diff
 control flow              58     106     -48
 calls                      0      15     -15
@@ -1669,9 +1772,11 @@ total                    211     474    -263
 
 ### Table 22: `scalar_id`, bytes per section
 
+```sh
+antlion --compare scalar_id --report sections
 ```
-$ antlion --compare scalar_id --report sections
 
+```
 section                      sdk  solang    diff
 type                          17      24      -7
 import                        61      67      -6
@@ -1694,9 +1799,11 @@ custom:contractmetav0        230       0    +230
 
 ### Table 23: `vec_mem`, host functions imported
 
+```sh
+antlion --compare vec_mem --report imports
 ```
-$ antlion --compare vec_mem --report imports
 
+```
 import   function                                         sdk   solang
 v.1      vec_get                                            ✓        —
 v.3      vec_len                                            ✓        —
@@ -1708,9 +1815,11 @@ total                                                       4        1
 
 ### Table 24: `vec_mem`, cost per call
 
+```sh
+antlion --compare vec_mem --report cost
 ```
-$ antlion --compare vec_mem --report cost
 
+```
 sum(u32) -> u32
 metric              sdk       solang         diff
 cpu insns        234121       222154       +11967
@@ -1727,9 +1836,11 @@ mem bytes       1125166      1189794       -64628
 
 ### Table 25: `vec_mem`, size and per function metrics
 
+```sh
+antlion --compare vec_mem --report size functions
 ```
-$ antlion --compare vec_mem --report size functions
 
+```
 sdk     solang  diff
 869     2842    -1973
 
@@ -1744,9 +1855,11 @@ __constructor     —     4     — │     —     2     — │    —    0   
 
 ### Table 26: `vec_id`, per function metrics and cost
 
+```sh
+antlion --compare vec_id --report functions cost
 ```
-$ antlion --compare vec_id --report functions cost
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 first            99   372  -273 │    48   167  -119 │    2    6   -4 │    2    6   -4 │    2    9   -7
@@ -1781,9 +1894,11 @@ mem bytes       1124466      1193285       -68819
 
 ### Table 27: `struct_mem`, per function metrics, memory operations and cost
 
+```sh
+antlion --compare struct_mem --report functions opcodes cost
 ```
-$ antlion --compare struct_mem --report functions opcodes cost
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 build            42   135   -93 │    24    61   -37 │    0    2   -2 │    2    2   +0 │    0    3   -3
@@ -1814,9 +1929,11 @@ mem bytes       1121424      1189083       -67659
 
 ### Table 28: `struct_mem`, the body of `build`
 
+```sh
+antlion --compare struct_mem --report opcodes --dump
 ```
-$ antlion --compare struct_mem --report opcodes --dump
 
+```
 Rust side, build:
 locals: none
 Block { blockty: Empty }
@@ -1847,7 +1964,7 @@ End
 Solidity side, build:
 locals: 2× i32
 I32Const { value: 8 }
-Call { function_index: 1 }
+Call 1
 LocalTee { local_index: 1 }
 I32Const { value: 4 }
 I32Add
@@ -1856,10 +1973,10 @@ I64Const { value: 32 }
 I64ShrU
 I32WrapI64
 LocalTee { local_index: 2 }
-I32Store { memarg: MemArg { align: 2, max_a…
+I32Store { memarg: MemArg { align: 2, max_align: 2, offset:…
 LocalGet { local_index: 1 }
 LocalGet { local_index: 2 }
-I32Store { memarg: MemArg { align: 2, max_a…
+I32Store { memarg: MemArg { align: 2, max_align: 2, offset:…
 Block { blockty: Empty }
 Block { blockty: Empty }
 LocalGet { local_index: 2 }
@@ -1882,7 +1999,7 @@ LocalTee { local_index: 0 }
 I64Const { value: 244813135876 }
 LocalGet { local_index: 0 }
 I64Const { value: 4 }
-Call { function_index: 0 }
+Call 0 ; log_from_linear_memory
 Drop
 Unreachable
 End
@@ -1896,7 +2013,7 @@ LocalTee { local_index: 0 }
 I64Const { value: 244813135876 }
 LocalGet { local_index: 0 }
 I64Const { value: 4 }
-Call { function_index: 0 }
+Call 0 ; log_from_linear_memory
 Drop
 Unreachable
 End
@@ -1911,9 +2028,11 @@ End
 
 ### Table 29: `baseline`, bytes per section of an empty contract
 
+```sh
+antlion --compare baseline --report sections
 ```
-$ antlion --compare baseline --report sections
 
+```
 section                      sdk  solang    diff
 type                           0       5      -5
 function                       0       2      -2
@@ -1934,9 +2053,11 @@ custom:contractmetav0        230       0    +230
 
 ### Table 30: `__constructor` on the Solidity side, per pair
 
+```sh
+antlion --compare <pair> --report functions
 ```
-$ antlion --compare <pair> --report functions
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 scalar_store __constructor     —     4     — │     —     2     — │    —    0    — │    —    0    — │    —    0    —
@@ -1952,9 +2073,11 @@ auth __constructor     —    21     — │     —     7     — │    —   
 
 ### Table 31: `flow`, the nested loop
 
+```sh
+antlion --compare flow --report functions returns
 ```
-$ antlion --compare flow --report functions returns
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 nested           84   258  -174 │    50   123   -73 │    3    5   -2 │    3    7   -4 │    0    4   -4
@@ -1977,9 +2100,11 @@ nested          badarg [err] HostError: Error…  [err] HostError: Error…  bot
 
 ### Table 32: `scalar_id`, bytes per function, with one and two arguments
 
+```sh
+antlion --compare scalar_id --report functions
 ```
-$ antlion --compare scalar_id --report functions
 
+```
                     bytes       │      instrs       │     locals     │     depth      │     calls
 function        sdk   sol  diff │   sdk   sol  diff │  sdk  sol diff │  sdk  sol diff │  sdk  sol diff
 address_id       18     4   +14 │    10     2    +8 │    0    0   +0 │    1    0   +1 │    0    0   +0
@@ -2004,9 +2129,11 @@ __constructor     —     4     — │     —     2     — │    —    0   
 
 ### Table 33: Module size, every pair
 
+```sh
+antlion --compare <pair> --report size
 ```
-$ antlion --compare <pair> --report size
 
+```
 pair          sdk     solang  diff
 baseline      367     403     -36
 auth          1054    1423    -369
@@ -2031,9 +2158,11 @@ One row per pair. The Rust build is smaller in all seventeen pairs.
 
 ### Table 34: Return value agreement, every pair
 
+```sh
+antlion --compare <pair> --report returns
 ```
-$ antlion --compare <pair> --report returns
 
+```
 scalar_id     note: 66 call(s) ran on both sides, 0 disagreed
 scalar_store  note: 33 call(s) ran on both sides, 0 disagreed
 scalar_math   note: 24 call(s) ran on both sides, 0 disagreed
@@ -2063,9 +2192,11 @@ F1.
 
 ### Table 35: Runtime cost, selected functions from every pair
 
+```sh
+antlion --compare <pair> --report cost
 ```
-$ antlion --compare <pair> --report cost
 
+```
 pair          function           sdk cpu  solang cpu     diff
 scalar_id     i32_id           298508    300228     -1720
 scalar_id     u128_id          301393    302741     -1348
@@ -2099,3 +2230,155 @@ large fixed overhead, so read the difference column. The Rust build is cheaper o
 of the sixteen pairs that have functions to call. It is more expensive on three: `vec_mem`
 by about 12,000 (F8), `struct_vec` by 2,000 to 6,000, and `slots` by 6,000 to 27,000.
 `scalar_store` is within 700 either way and `location` within 8,500 either way.
+
+### Table 36: `struct_store`, every call each function makes
+
+```sh
+antlion --compare struct_store --report opcodes --dump
+```
+
+```
+write_all, Rust side:
+Call 5
+write_all, Solidity side:
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 2 ; vec_put
+Call 3 ; put_contract_data
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 2 ; vec_put
+Call 3 ; put_contract_data
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 2 ; vec_put
+Call 3 ; put_contract_data
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 2 ; vec_put
+Call 3 ; put_contract_data
+Call 4 ; log_from_linear_memory
+
+read_all, Rust side:
+Call 6
+read_all, Solidity side:
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 5 ; vec_get
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 5 ; vec_get
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 5 ; vec_get
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 5 ; vec_get
+Call 4 ; log_from_linear_memory
+Call 4 ; log_from_linear_memory
+Call 4 ; log_from_linear_memory
+Call 4 ; log_from_linear_memory
+
+write_one, Rust side:
+Call 6
+Call 5
+write_one, Solidity side:
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 2 ; vec_put
+Call 3 ; put_contract_data
+Call 4 ; log_from_linear_memory
+
+read_one, Rust side:
+Call 6
+read_one, Solidity side:
+Call 0 ; has_contract_data
+Call 1 ; get_contract_data
+Call 5 ; vec_get
+Call 4 ; log_from_linear_memory
+
+Rust side, internal functions:
+function #5
+Call 0 ; map_new_from_linear_memory
+Call 1 ; put_contract_data
+function #6
+Call 2 ; has_contract_data
+Call 3 ; get_contract_data
+Call 4 ; sparse_map_unpack_to_linear_memory
+```
+
+Only the `Call` lines of each function are shown. A call to an imported host function is
+named; a call without a name goes to one of the contract's own internal functions, listed
+at the end.
+
+### Table 37: `struct_id`, every call each function makes
+
+```sh
+antlion --compare struct_id --report opcodes --dump
+```
+
+```
+get_x, Rust side:
+Call 2
+get_x, Solidity side:
+Call 0 ; symbol_new_from_linear_memory
+Call 1 ; map_get
+Call 0 ; symbol_new_from_linear_memory
+Call 1 ; map_get
+Call 5
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+
+make, Rust side:
+Call 5
+make, Solidity side:
+Call 5
+Call 3 ; map_new
+Call 0 ; symbol_new_from_linear_memory
+Call 4 ; map_put
+Call 0 ; symbol_new_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 4 ; map_put
+
+id, Rust side:
+Call 2
+Call 5
+id, Solidity side:
+Call 0 ; symbol_new_from_linear_memory
+Call 1 ; map_get
+Call 0 ; symbol_new_from_linear_memory
+Call 1 ; map_get
+Call 5
+Call 3 ; map_new
+Call 0 ; symbol_new_from_linear_memory
+Call 4 ; map_put
+Call 0 ; symbol_new_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 2 ; log_from_linear_memory
+Call 4 ; map_put
+
+Rust side, internal functions:
+function #2
+Call 3
+function #3
+Call 4
+function #4
+Call 1 ; sparse_map_unpack_to_linear_memory
+function #5
+Call 6
+function #6
+Call 7
+function #7
+Call 0 ; map_new_from_linear_memory
+```
+
+As in Table 36, only the `Call` lines are shown. Each `log_from_linear_memory` call is on
+an error path, before a trap.
