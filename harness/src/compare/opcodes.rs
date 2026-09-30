@@ -78,7 +78,7 @@ fn detail(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
-const COL: usize = 44;
+const COL: usize = 60;
 
 /// Side-by-side disassembly: paired exports first, one-sided next, internals last.
 fn dump(sdk: &Contract, solang: &Contract) {

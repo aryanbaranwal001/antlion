@@ -51,6 +51,8 @@ impl Function {
 /// position plus the number of imported functions.
 pub fn functions(wasm: &[u8]) -> Vec<Function> {
     let mut imported_funcs = 0u32;
+    // Imported function names in index order, so a call to import N can name its target.
+    let mut host: Vec<String> = Vec::new();
     let mut names: HashMap<u32, String> = HashMap::new();
     let mut local_i = 0u32;
     let mut out = Vec::new();
@@ -58,11 +60,16 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
     for payload in Parser::new(0).parse_all(wasm) {
         match payload {
             Ok(Payload::ImportSection(reader)) => {
-                imported_funcs += reader
-                    .into_iter()
-                    .filter_map(Result::ok)
-                    .filter(|im| matches!(im.ty, wasmparser::TypeRef::Func(_)))
-                    .count() as u32;
+                for im in reader.into_iter().filter_map(Result::ok) {
+                    if matches!(im.ty, wasmparser::TypeRef::Func(_)) {
+                        imported_funcs += 1;
+                        host.push(
+                            super::names::host_fn_name(im.module, im.name)
+                                .map(str::to_string)
+                                .unwrap_or_else(|| format!("{}.{}", im.module, im.name)),
+                        );
+                    }
+                }
             }
 
             Ok(Payload::ExportSection(reader)) => {
@@ -82,7 +89,7 @@ pub fn functions(wasm: &[u8]) -> Vec<Function> {
                     bytes: body.range().len(),
                     local_count,
                     locals,
-                    instrs: read_body(&body),
+                    instrs: read_body(&body, &host),
                 });
             }
             _ => {}
@@ -118,7 +125,9 @@ fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
 /// `block` + `br_if`, so `If`/`Else` never appear.
 // TODO: remove redundant If / Else
 // TODO: check if all the operators have been taken into account
-fn read_body(body: &wasmparser::FunctionBody) -> Vec<Instr> {
+/// A call is written `Call N`, and a call to an imported function also names the host
+/// function, e.g. `Call 3 ; put_contract_data`.
+fn read_body(body: &wasmparser::FunctionBody, host: &[String]) -> Vec<Instr> {
     let mut reader = body
         .get_operators_reader()
         .expect("[err] malformed function body: no operators reader");
@@ -129,7 +138,15 @@ fn read_body(body: &wasmparser::FunctionBody) -> Vec<Instr> {
     while !reader.eof() {
         let Ok(op) = reader.read() else { break };
 
-        let text = format!("{op:?}");
+        let text = match op {
+            wasmparser::Operator::Call { function_index } => {
+                match host.get(function_index as usize) {
+                    Some(name) => format!("Call {function_index} ; {name}"),
+                    None => format!("Call {function_index}"),
+                }
+            }
+            _ => format!("{op:?}"),
+        };
         let n = variant(&text);
         let is_else = n == "Else";
         let closes = n == "End" || is_else;
