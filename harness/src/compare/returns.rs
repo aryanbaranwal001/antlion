@@ -1,3 +1,4 @@
+use serde_json::{Value, json};
 use soroban_env_host::{
     Env, EnvBase, Host, HostError, Symbol, TryFromVal, Val,
     testutils::{generate_account_id, generate_bytes_array},
@@ -10,16 +11,163 @@ const NAME: usize = 15;
 const KIND: usize = 6;
 const VALUE: usize = 24;
 
+/// What one side answered, as one line: the value, or the error.
+struct Answer {
+    ok: bool,
+    text: String,
+}
+
+impl Answer {
+    fn of(v: &Result<ScVal, HostError>) -> Self {
+        match v {
+            Ok(val) => Answer {
+                ok: true,
+                text: super::one_line(&format!("{val:?}")),
+            },
+            Err(e) => Answer {
+                ok: false,
+                text: super::one_line(&format!("{e:?}")),
+            },
+        }
+    }
+
+    /// One value, on a single line, as the text prints it in full.
+    fn full(&self) -> String {
+        if self.ok {
+            self.text.clone()
+        } else {
+            format!("[err] {}", self.text)
+        }
+    }
+
+    fn json(&self) -> Value {
+        if self.ok {
+            json!({ "ok": self.text })
+        } else {
+            json!({ "err": self.text })
+        }
+    }
+}
+
+/// One table row, or a function skipped for its argument types.
+enum Item {
+    Unsupported(String),
+    Row {
+        func: String,
+        input: &'static str,
+        sdk: Answer,
+        solang: Answer,
+        verdict: &'static str,
+    },
+}
+
+pub struct Data {
+    no_spec: bool,
+    items: Vec<Item>,
+    checked: usize,
+    differ: usize,
+}
+
 /// Invoke every function on both builds and compare what each one answers. Cost says how
 /// much the two spent; this says whether they agree.
 ///
 /// Each function runs twice. `small` uses values that ride inline in the `Val` word;
 /// `edge` uses boundary values, including 64 and 128 bit numbers too large for the 56 bit
 /// payload, which the host therefore passes as object handles.
-pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
+pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
+    let mut d = Data {
+        no_spec: sdk.interface.funcs.is_empty(),
+        items: Vec::new(),
+        checked: 0,
+        differ: 0,
+    };
+
+    for f in &sdk.interface.funcs {
+        if !spec::args_supported(&sdk.interface, &f.inputs) {
+            d.items.push(Item::Unsupported(f.name.clone()));
+            continue;
+        }
+
+        for kind in spec::ALL_INPUTS {
+            let args = |h: &Host, addr| spec::build_args(h, addr, &sdk.interface, &f.inputs, kind);
+            let s = invoke(sdk.wasm, &f.name, false, args);
+            let l = invoke(solang.wasm, &f.name, false, args);
+            d.row(&f.name, kind.label(), &s, &l);
+        }
+
+        // Every other row runs with no authorization, so `require_auth` fails. This one
+        // grants whatever is asked for, to see what each side does once it passes.
+        if spec::takes_address(&f.inputs) {
+            let args = |h: &Host, addr| {
+                spec::build_args(h, addr, &sdk.interface, &f.inputs, spec::Inputs::Small)
+            };
+            let s = invoke(sdk.wasm, &f.name, true, args);
+            let l = invoke(solang.wasm, &f.name, true, args);
+            d.row(&f.name, "authed", &s, &l);
+        }
+
+        // A struct argument is also sent in shapes neither side should accept. Both
+        // rejecting is the expected answer; one side accepting is the divergence.
+        if spec::takes_struct(&f.inputs) {
+            for m in spec::ALL_MALFORMED {
+                let args =
+                    |h: &Host, addr| spec::build_malformed(h, addr, &sdk.interface, &f.inputs, m);
+                let s = invoke(sdk.wasm, &f.name, false, args);
+                let l = invoke(solang.wasm, &f.name, false, args);
+                d.row(&f.name, m.label(), &s, &l);
+            }
+        }
+
+        // The first argument that is not a struct, sent as the wrong type. Soroban leaves
+        // type checking to the contract, so this asks whether each side does it.
+        if spec::takes_plain(&f.inputs) {
+            let args = |h: &Host, addr| spec::build_wrong_arg(h, addr, &sdk.interface, &f.inputs);
+            let s = invoke(sdk.wasm, &f.name, false, args);
+            let l = invoke(solang.wasm, &f.name, false, args);
+            d.row(&f.name, "badarg", &s, &l);
+        }
+    }
+    d
+}
+
+impl Data {
+    /// Record one row and tally it. Only calls that ran on both sides count as checked.
+    fn row(
+        &mut self,
+        func: &str,
+        input: &'static str,
+        s: &Result<ScVal, HostError>,
+        l: &Result<ScVal, HostError>,
+    ) {
+        let verdict = match (s, l) {
+            (Ok(a), Ok(b)) => {
+                self.checked += 1;
+                if a == b {
+                    "same"
+                } else {
+                    self.differ += 1;
+                    "DIFFER"
+                }
+            }
+            (Err(_), Err(_)) => "both failed",
+            (Err(_), Ok(_)) => "sdk failed",
+            (Ok(_), Err(_)) => "solang failed",
+        };
+
+        self.items.push(Item::Row {
+            func: func.to_string(),
+            input,
+            sdk: Answer::of(s),
+            solang: Answer::of(l),
+            verdict,
+        });
+    }
+}
+
+pub fn text(name: &str, d: &Data) {
     super::banner("return value equivalence");
 
-    if sdk.interface.funcs.is_empty() {
+    if d.no_spec {
         println!("[skip] no contract spec found for `{name}` — nothing to invoke");
         println!();
         return;
@@ -31,84 +179,61 @@ pub fn report(name: &str, sdk: &Contract, solang: &Contract) {
     );
     println!("{}", "─".repeat(NAME + KIND + VALUE * 2 + 10));
 
-    let mut differ = 0;
-    let mut checked = 0;
-
-    for f in &sdk.interface.funcs {
-        if !spec::args_supported(&sdk.interface, &f.inputs) {
-            println!("{:<NAME$} {}", f.name, "— unsupported arg types");
-            continue;
-        }
-
-        for kind in spec::ALL_INPUTS {
-            let args = |h: &Host, addr| spec::build_args(h, addr, &sdk.interface, &f.inputs, kind);
-            let s = invoke(sdk.wasm, &f.name, false, args);
-            let l = invoke(solang.wasm, &f.name, false, args);
-            row(&f.name, kind.label(), &s, &l, &mut checked, &mut differ);
-        }
-
-        // Every other row runs with no authorization, so `require_auth` fails. This one
-        // grants whatever is asked for, to see what each side does once it passes.
-        if spec::takes_address(&f.inputs) {
-            let args = |h: &Host, addr| {
-                spec::build_args(h, addr, &sdk.interface, &f.inputs, spec::Inputs::Small)
-            };
-            let s = invoke(sdk.wasm, &f.name, true, args);
-            let l = invoke(solang.wasm, &f.name, true, args);
-            row(&f.name, "authed", &s, &l, &mut checked, &mut differ);
-        }
-
-        // A struct argument is also sent in shapes neither side should accept. Both
-        // rejecting is the expected answer; one side accepting is the divergence.
-        if spec::takes_struct(&f.inputs) {
-            for m in spec::ALL_MALFORMED {
-                let args =
-                    |h: &Host, addr| spec::build_malformed(h, addr, &sdk.interface, &f.inputs, m);
-                let s = invoke(sdk.wasm, &f.name, false, args);
-                let l = invoke(solang.wasm, &f.name, false, args);
-                row(&f.name, m.label(), &s, &l, &mut checked, &mut differ);
-            }
-        }
-
-        // The first argument that is not a struct, sent as the wrong type. Soroban leaves
-        // type checking to the contract, so this asks whether each side does it.
-        if spec::takes_plain(&f.inputs) {
-            let args = |h: &Host, addr| spec::build_wrong_arg(h, addr, &sdk.interface, &f.inputs);
-            let s = invoke(sdk.wasm, &f.name, false, args);
-            let l = invoke(solang.wasm, &f.name, false, args);
-            row(&f.name, "badarg", &s, &l, &mut checked, &mut differ);
+    for item in &d.items {
+        match item {
+            Item::Unsupported(func) => println!("{:<NAME$} {}", func, "— unsupported arg types"),
+            Item::Row {
+                func,
+                input,
+                sdk,
+                solang,
+                verdict,
+            } => row(func, input, sdk, solang, verdict),
         }
     }
 
     println!();
-    println!("note: {checked} call(s) ran on both sides, {differ} disagreed");
+    println!(
+        "note: {} call(s) ran on both sides, {} disagreed",
+        d.checked, d.differ
+    );
     println!();
 }
 
-/// Print one row and tally it. Only calls that ran on both sides count as checked.
-fn row(
-    func: &str,
-    label: &str,
-    s: &Result<ScVal, HostError>,
-    l: &Result<ScVal, HostError>,
-    checked: &mut usize,
-    differ: &mut usize,
-) {
-    let verdict = match (s, l) {
-        (Ok(a), Ok(b)) => {
-            *checked += 1;
-            if a == b {
-                "same"
-            } else {
-                *differ += 1;
-                "DIFFER"
-            }
+/// Values and errors are given in full, never cut to a column.
+pub fn json(d: &Data) -> Value {
+    let mut rows = Vec::new();
+    let mut skipped = Vec::new();
+    for item in &d.items {
+        match item {
+            Item::Unsupported(func) => skipped.push(json!(func)),
+            Item::Row {
+                func,
+                input,
+                sdk,
+                solang,
+                verdict,
+            } => rows.push(json!({
+                "function": func,
+                "input": input,
+                "sdk": sdk.json(),
+                "solang": solang.json(),
+                "verdict": verdict,
+            })),
         }
-        (Err(_), Err(_)) => "both failed",
-        (Err(_), Ok(_)) => "sdk failed",
-        (Ok(_), Err(_)) => "solang failed",
-    };
+    }
 
+    json!({
+        "no_spec": d.no_spec,
+        "rows": rows,
+        "skipped": skipped,
+        "checked": d.checked,
+        "disagreed": d.differ,
+    })
+}
+
+/// Print one row.
+fn row(func: &str, label: &str, s: &Answer, l: &Answer, verdict: &str) {
     println!(
         "{:<NAME$} {:<KIND$} {:<VALUE$} {:<VALUE$} {}",
         func,
@@ -121,10 +246,10 @@ fn row(
     // A truncated column is fine when the two agree. When they do not, the difference is
     // the whole point, so print both in full. Two failures with different errors count too:
     // one side may have accepted the input and failed later for another reason.
-    let different_errors = matches!((s, l), (Err(_), Err(_))) && full(s) != full(l);
+    let different_errors = !s.ok && !l.ok && s.full() != l.full();
     if verdict == "DIFFER" || different_errors {
-        println!("{:>NAME$}   sdk    {}", "", full(s));
-        println!("{:>NAME$}   solang {}", "", full(l));
+        println!("{:>NAME$}   sdk    {}", "", s.full());
+        println!("{:>NAME$}   solang {}", "", l.full());
     }
 }
 
@@ -154,18 +279,9 @@ fn invoke(
     Ok(ScVal::try_from_val(&host, &out)?)
 }
 
-/// One value, on a single line.
-fn full(v: &Result<ScVal, HostError>) -> String {
-    let text = match v {
-        Ok(val) => format!("{val:?}"),
-        Err(e) => format!("[err] {e:?}"),
-    };
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 /// One value, trimmed to fit its column.
-fn show(v: &Result<ScVal, HostError>) -> String {
-    let flat = full(v);
+fn show(v: &Answer) -> String {
+    let flat = v.full();
     if flat.chars().count() > VALUE - 1 {
         format!("{}…", flat.chars().take(VALUE - 2).collect::<String>())
     } else {

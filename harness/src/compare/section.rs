@@ -1,23 +1,74 @@
+use serde_json::{Value, json};
+
 use crate::wasm::{Contract, Section};
 
+/// Every size under one section name, on each side, in file order.
+pub struct Row {
+    name: String,
+    sdk: Vec<usize>,
+    solang: Vec<usize>,
+}
+
+pub fn collect(sdk: &Contract, solang: &Contract) -> Vec<Row> {
+    let sdk_secs = sizes_by_name(&sdk.sections);
+    let solang_secs = sizes_by_name(&solang.sections);
+
+    section_order(&sdk_secs, &solang_secs)
+        .into_iter()
+        .map(|name| Row {
+            sdk: sizes_of(&sdk_secs, &name).to_vec(),
+            solang: sizes_of(&solang_secs, &name).to_vec(),
+            name,
+        })
+        .collect()
+}
+
 /// Compare the two modules section by section, in bytes.
-pub fn report(sdk: &Contract, solang: &Contract) {
+pub fn text(rows: &[Row]) {
     super::banner("aggregate section byte breakdown");
     println!(
         "{:<24} {:>7} {:>7} {:>7}",
         "section", "sdk", "solang", "diff"
     );
 
-    let sdk_secs = sizes_by_name(&sdk.sections);
-    let solang_secs = sizes_by_name(&solang.sections);
-
-    for name in section_order(&sdk_secs, &solang_secs) {
-        let a = sizes_of(&sdk_secs, &name);
-        let b = sizes_of(&solang_secs, &name);
-        line(&name, Some(a.iter().sum()), Some(b.iter().sum()));
-        occurrences(a, b);
+    for r in rows {
+        line(&r.name, Some(r.sdk.iter().sum()), Some(r.solang.iter().sum()));
+        occurrences(&r.sdk, &r.solang);
     }
     println!();
+}
+
+/// One object per section. A repeated name also lists each occurrence, as the text does.
+pub fn json(rows: &[Row]) -> Value {
+    let rows: Vec<Value> = rows
+        .iter()
+        .map(|r| {
+            let (s, l): (usize, usize) = (r.sdk.iter().sum(), r.solang.iter().sum());
+            let mut v = json!({
+                "name": r.name,
+                "sdk": s,
+                "solang": l,
+                "diff": s as i64 - l as i64,
+            });
+
+            let n = r.sdk.len().max(r.solang.len());
+            if n >= 2 {
+                let each: Vec<Value> = (0..n)
+                    .map(|i| {
+                        let (a, b) = (r.sdk.get(i), r.solang.get(i));
+                        let diff = match (a, b) {
+                            (Some(a), Some(b)) => json!(*a as i64 - *b as i64),
+                            _ => Value::Null,
+                        };
+                        json!({ "sdk": a, "solang": b, "diff": diff })
+                    })
+                    .collect();
+                v["occurrences"] = Value::Array(each);
+            }
+            v
+        })
+        .collect();
+    Value::Array(rows)
 }
 
 /// Every size under each name, in file order. Only custom sections can repeat, so
