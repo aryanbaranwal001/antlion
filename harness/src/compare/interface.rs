@@ -1,12 +1,33 @@
+use serde_json::{Value, json};
+
 use crate::wasm::{Contract, spec};
 
+/// One function's signature on each side, `None` where that side lacks it.
+pub struct Row {
+    name: String,
+    sdk: Option<String>,
+    solang: Option<String>,
+}
+
+pub fn collect(sdk: &Contract, solang: &Contract) -> Vec<Row> {
+    fn_names(sdk, solang)
+        .into_iter()
+        .map(|f| Row {
+            sdk: sig_for(sdk, &f),
+            solang: sig_for(solang, &f),
+            name: f,
+        })
+        .collect()
+}
+
 /// Each function's signature on both sides.
-pub fn report(sdk: &Contract, solang: &Contract) {
+pub fn text(rows: &[Row]) {
     super::banner("contract interface");
 
-    let rows: Vec<(String, String)> = fn_names(sdk, solang)
-        .into_iter()
-        .map(|f| (sig_for(sdk, &f), sig_for(solang, &f)))
+    let shown = |s: &Option<String>| s.clone().unwrap_or_else(|| "—".to_string());
+    let rows: Vec<(String, String)> = rows
+        .iter()
+        .map(|r| (shown(&r.sdk), shown(&r.solang)))
         .collect();
 
     // Type-heavy signatures run well past any fixed width, so the column is sized to
@@ -29,6 +50,12 @@ pub fn report(sdk: &Contract, solang: &Contract) {
     println!();
 }
 
+pub fn json(rows: &[Row]) -> Value {
+    rows.iter()
+        .map(|r| json!({ "name": r.name, "sdk": r.sdk, "solang": r.solang }))
+        .collect()
+}
+
 /// Function names from both contracts, sdk order first.
 fn fn_names(sdk: &Contract, solang: &Contract) -> Vec<String> {
     let mut names: Vec<String> = sdk.interface.funcs.iter().map(|f| f.name.clone()).collect();
@@ -40,10 +67,11 @@ fn fn_names(sdk: &Contract, solang: &Contract) -> Vec<String> {
     names
 }
 
-/// This contract's signature for `name`, or `—` if it has none.
-fn sig_for(c: &Contract, name: &str) -> String {
-    match c.interface.funcs.iter().find(|f| f.name == name) {
-        Some(f) => spec::sig(f),
-        None => "—".to_string(),
-    }
+/// This contract's signature for `name`, or `None` if it has none.
+fn sig_for(c: &Contract, name: &str) -> Option<String> {
+    c.interface
+        .funcs
+        .iter()
+        .find(|f| f.name == name)
+        .map(spec::sig)
 }

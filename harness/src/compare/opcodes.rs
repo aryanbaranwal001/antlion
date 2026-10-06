@@ -1,4 +1,5 @@
 use crate::wasm::{Contract, code};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
 const BUCKETS: [&str; 8] = [
@@ -12,69 +13,146 @@ const BUCKETS: [&str; 8] = [
     "memory/other",
 ];
 
-/// Dispatch on the trailing flag: `--detail`, `--dump`, or the bucket totals.
-pub fn report(sdk: &Contract, solang: &Contract, mode: Option<&str>) {
-    match mode {
-        Some("--detail") => detail(sdk, solang),
-        Some("--dump") => dump(sdk, solang),
-        _ => default(sdk, solang),
-    }
+/// One opcode's count on each side.
+struct Count<'a> {
+    name: &'a str,
+    sdk: u64,
+    solang: u64,
 }
 
-/// One row per bucket, skipping those empty on both sides.
-fn default(sdk: &Contract, solang: &Contract) {
-    super::banner("opcode histogram");
-    println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
+/// One bucket's total, and each opcode in it, sorted by name.
+struct Bucket<'a> {
+    name: &'static str,
+    sdk: u64,
+    solang: u64,
+    opcodes: Vec<Count<'a>>,
+}
 
+/// The histogram of both builds. Buckets empty on both sides are left out.
+pub struct Data<'a> {
+    buckets: Vec<Bucket<'a>>,
+    total: (u64, u64),
+    sdk_only: Vec<&'a str>,
+    solang_only: Vec<&'a str>,
+}
+
+pub fn collect<'a>(sdk: &'a Contract, solang: &'a Contract) -> Data<'a> {
     let sdk = feed(sdk.functions());
     let solang = feed(solang.functions());
 
-    let (mut sdk_total, mut solang_total) = (0u64, 0u64);
+    let mut buckets = Vec::new();
+    let mut total = (0, 0);
     for b in BUCKETS {
         let s = sum_bucket(&sdk, b);
         let l = sum_bucket(&solang, b);
         if s == 0 && l == 0 {
             continue;
         }
-        row(b, s, l, "");
-        sdk_total += s;
-        solang_total += l;
+        total.0 += s;
+        total.1 += l;
+
+        let opcodes = opcodes_in(b, &sdk, &solang)
+            .into_iter()
+            .map(|name| Count {
+                name,
+                sdk: *sdk.get(name).unwrap_or(&0),
+                solang: *solang.get(name).unwrap_or(&0),
+            })
+            .collect();
+        buckets.push(Bucket {
+            name: b,
+            sdk: s,
+            solang: l,
+            opcodes,
+        });
     }
-    row("total", sdk_total, solang_total, "");
+
+    let (sdk_only, solang_only) = exclusives(&sdk, &solang);
+    Data {
+        buckets,
+        total,
+        sdk_only,
+        solang_only,
+    }
+}
+
+/// Dispatch on the trailing flag: `--detail`, `--dump`, or the bucket totals.
+pub fn text(sdk: &Contract, solang: &Contract, mode: Option<&str>) {
+    match mode {
+        Some("--detail") => detail(&collect(sdk, solang)),
+        Some("--dump") => dump(sdk, solang),
+        _ => default(&collect(sdk, solang)),
+    }
+}
+
+/// Every bucket with its opcodes, so `--detail` adds nothing here. `--dump` has no JSON.
+pub fn json(d: &Data) -> Value {
+    let diff = |s: u64, l: u64| s as i64 - l as i64;
+
+    let buckets: Vec<Value> = d
+        .buckets
+        .iter()
+        .map(|b| json!({ "kind": b.name, "sdk": b.sdk, "solang": b.solang, "diff": diff(b.sdk, b.solang) }))
+        .collect();
+
+    let opcodes: Vec<Value> = d
+        .buckets
+        .iter()
+        .flat_map(|b| b.opcodes.iter().map(move |c| (b.name, c)))
+        .map(|(bucket, c)| {
+            json!({
+                "name": c.name,
+                "bucket": bucket,
+                "sdk": c.sdk,
+                "solang": c.solang,
+                "diff": diff(c.sdk, c.solang),
+            })
+        })
+        .collect();
+
+    let (s, l) = d.total;
+    json!({
+        "buckets": buckets,
+        "opcodes": opcodes,
+        "total": { "sdk": s, "solang": l, "diff": diff(s, l) },
+        "sdk_only": d.sdk_only,
+        "solang_only": d.solang_only,
+    })
+}
+
+/// One row per bucket, skipping those empty on both sides.
+fn default(d: &Data) {
+    super::banner("opcode histogram");
+    println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
+
+    for b in &d.buckets {
+        row(b.name, b.sdk, b.solang, "");
+    }
+    row("total", d.total.0, d.total.1, "");
     println!();
 }
 
 /// As `default`, plus each bucket's individual opcodes and the one-sided ones.
-fn detail(sdk: &Contract, solang: &Contract) {
+fn detail(d: &Data) {
     super::banner("opcode histogram");
     println!("{:<20} {:>7} {:>7} {:>7}", "kind", "sdk", "solang", "diff");
 
-    let sdk = feed(sdk.functions());
-    let solang = feed(solang.functions());
-
-    let (mut sdk_total, mut solang_total) = (0u64, 0u64);
-    for b in BUCKETS {
-        let s = sum_bucket(&sdk, b);
-        let l = sum_bucket(&solang, b);
-        if s == 0 && l == 0 {
-            continue;
-        }
-
+    for b in &d.buckets {
         println!();
-        row(&heading(b), s, l, "");
-        sdk_total += s;
-        solang_total += l;
+        row(&heading(b.name), b.sdk, b.solang, "");
 
-        for name in opcodes_in(b, &sdk, &solang) {
-            let s = *sdk.get(name).unwrap_or(&0);
-            let l = *solang.get(name).unwrap_or(&0);
-            row(name, s, l, marker(s, l));
+        for c in &b.opcodes {
+            row(c.name, c.sdk, c.solang, marker(c.sdk, c.solang));
         }
     }
 
     println!();
-    row("total", sdk_total, solang_total, "");
-    exclusives(&sdk, &solang);
+    row("total", d.total.0, d.total.1, "");
+
+    println!();
+    println!("exclusive opcodes (present on only one side)");
+    println!("sdk only:    {}", join(&d.sdk_only));
+    println!("solang only: {}", join(&d.solang_only));
     println!();
 }
 
@@ -211,8 +289,11 @@ fn opcodes_in<'a>(
     names
 }
 
-/// The opcodes present on only one side.
-fn exclusives(sdk: &BTreeMap<&str, u64>, solang: &BTreeMap<&str, u64>) {
+/// The opcodes present on only one side, sdk's first.
+fn exclusives<'a>(
+    sdk: &BTreeMap<&'a str, u64>,
+    solang: &BTreeMap<&'a str, u64>,
+) -> (Vec<&'a str>, Vec<&'a str>) {
     let sdk_only: Vec<&str> = sdk
         .keys()
         .filter(|n| !solang.contains_key(*n))
@@ -223,11 +304,7 @@ fn exclusives(sdk: &BTreeMap<&str, u64>, solang: &BTreeMap<&str, u64>) {
         .filter(|n| !sdk.contains_key(*n))
         .copied()
         .collect();
-
-    println!();
-    println!("exclusive opcodes (present on only one side)");
-    println!("sdk only:    {}", join(&sdk_only));
-    println!("solang only: {}", join(&solang_only));
+    (sdk_only, solang_only)
 }
 
 /// Comma-separated list, or `—` when empty.
