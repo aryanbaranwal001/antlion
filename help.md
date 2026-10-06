@@ -4,7 +4,7 @@ the Rust soroban-sdk, and Solidity through Solang.
 USAGE
 
     antlion --build <contract>
-    antlion --compare <name>... --report <report>... [--detail | --dump]
+    antlion --compare <name>... --report <report>... [--json] [--detail | --dump]
     antlion --help
     antlion --version
 
@@ -22,6 +22,7 @@ COMMANDS
 OPTIONS
 
     --report <report>...  reports to run; required, pass `all` for every one
+    --json                print one JSON document in place of the text reports
     --detail              opcodes only: break each bucket into its opcodes
     --dump                opcodes only: side-by-side disassembly
 
@@ -82,10 +83,15 @@ EXAMPLES
     antlion --compare scalar_id --report all
     antlion --compare scalar_id scalar_math --report size returns
     antlion --compare flow --report opcodes --dump
+    antlion --compare scalar_id --report all --json
 
 NOTES
 
     --compare reads out/<name>/{sdk,solang}.wasm, so run --build first.
-    --detail and --dump apply to the opcodes report only, and must come last.
+    --detail and --dump apply to the opcodes report only.
+    --json, --detail and --dump come after the report names, in any order.
+    With --json, --detail changes nothing: the opcodes JSON always lists every
+    opcode. --dump has no JSON form, so opcodes is left out and named under
+    `no_json`.
     returns prints both values in full when they differ, and both errors in full
     when both sides fail with different errors.

@@ -6,7 +6,7 @@ mod build;
 mod compare;
 mod wasm;
 
-const VERSION: &str = "antlion version v0.1.0";
+const VERSION: &str = "antlion version v0.1.1";
 
 fn main() {
     let mut args = env::args().skip(1);

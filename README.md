@@ -57,6 +57,12 @@ antlion --compare scalar_id --report returns
 antlion --compare scalar_id --report size cost
 ```
 
+Add `--json` to get the same results as one JSON document, for scripts and CI:
+
+```
+antlion --compare scalar_id --report all --json
+```
+
 To see every report and option:
 
 ```

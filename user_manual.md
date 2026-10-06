@@ -8,6 +8,7 @@ a contract pair, see the [README](README.md).
    - [Compare](#compare)
    - [Help and version](#help-and-version)
 2. [Reading the output](#reading-the-output)
+   - [JSON output](#json-output)
 3. [Reports](#reports)
    - [size](#size)
    - [sections](#sections)
@@ -46,7 +47,7 @@ antlion --build /abs/path/to/mypair      ->  out/mypair/
 ### Compare
 
 ```
-antlion --compare <name>... --report <report>... [--detail | --dump]
+antlion --compare <name>... --report <report>... [--json] [--detail | --dump]
 ```
 
 Compares the two builds of a pair. It takes the pair's **name**, not its path, and reads
@@ -59,10 +60,12 @@ also give several pairs at once. Pairs and reports run in the order you write th
 antlion --compare scalar_id --report all
 antlion --compare scalar_id scalar_math --report size returns
 antlion --compare flow --report opcodes --dump
+antlion --compare scalar_id --report all --json
 ```
 
-`--detail` and `--dump` only affect the `opcodes` report and must come last. See
-[opcodes](#opcodes).
+`--json`, `--detail` and `--dump` come after the report names, in any order. `--json`
+prints the same results as JSON; see [JSON output](#json-output). `--detail` and `--dump`
+only affect the `opcodes` report; see [opcodes](#opcodes).
 
 ### Help and version
 
@@ -89,6 +92,41 @@ Here the Solidity build is 889 bytes larger.
 
 A dash, `—`, in a column means that side has nothing to show there, for example a function
 that exists on one side only.
+
+### JSON output
+
+With `--json`, `--compare` prints one JSON document and nothing else, for scripts such as
+CI. The numbers are the same as in the text reports.
+
+```json
+{
+  "schema_version": 1,
+  "antlion": "v0.1.1",
+  "pairs": [
+    {
+      "name": "scalar_id",
+      "size": { "sdk": 2845, "solang": 3734, "diff": -889 }
+    }
+  ],
+  "no_json": []
+}
+```
+
+- `schema_version` goes up when the shape of the document changes.
+- `pairs` has one object per pair, in the order given. Each object has the pair's `name`
+  and one key per report requested, in the order requested.
+- Each value has an `sdk` and a `solang` side. A `diff` is given only where the text report
+  shows one, and is `sdk` minus `solang`, as a plain number.
+- A cell the text shows as `—` is `null`.
+- Numbers are raw: memory pages are a page count, not `16 (1 MiB)`.
+- Returned values and errors are strings, in full. The text cuts them to fit a column.
+- `returns`, `cost` and `ledger` have `no_spec`, true when the contract has no spec and
+  nothing was called, and `skipped`, the functions whose argument types antlion cannot
+  build.
+- `no_json` names any report asked for that has no JSON form. Only `opcodes` with `--dump`
+  has none; it is left out of every pair.
+
+With `--json`, `--detail` changes nothing: the `opcodes` JSON always lists every opcode.
 
 ## Reports
 
@@ -221,7 +259,8 @@ have no code of their own, so they are not counted.
 | `--detail` | each kind broken down into its instructions, plus any used by one side only |
 | `--dump` | the full code of every function in two columns, instead of the counts |
 
-Both options only work with `opcodes` and must come last.
+Both options only work with `opcodes`. With `--json`, `--detail` changes nothing and `--dump`
+leaves `opcodes` out; see [JSON output](#json-output).
 
 In `--dump`, the two columns are independent: each side is listed top to bottom in its own
 order, and the shorter one is padded. Nothing is lined up between them. Exported functions
