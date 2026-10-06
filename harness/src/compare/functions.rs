@@ -1,3 +1,5 @@
+use serde_json::{Value, json};
+
 use crate::wasm::{Contract, code};
 
 /// The five numbers, for one side.
@@ -30,32 +32,116 @@ impl Metrics {
         self.depth = self.depth.max(o.depth);
         self.calls += o.calls;
     }
+
+    fn json(&self) -> Value {
+        json!({
+            "bytes": self.bytes,
+            "instrs": self.instrs,
+            "locals": self.locals,
+            "depth": self.depth,
+            "calls": self.calls,
+        })
+    }
+
+    /// `self` minus `o`, metric by metric.
+    fn diff_json(&self, o: &Metrics) -> Value {
+        let d = |a: usize, b: usize| a as i64 - b as i64;
+        json!({
+            "bytes": d(self.bytes, o.bytes),
+            "instrs": d(self.instrs, o.instrs),
+            "locals": d(self.locals as usize, o.locals as usize),
+            "depth": d(self.depth, o.depth),
+            "calls": d(self.calls, o.calls),
+        })
+    }
+}
+
+/// One exported function, `None` on a side that lacks it.
+struct Row {
+    name: String,
+    sdk: Option<Metrics>,
+    solang: Option<Metrics>,
+}
+
+pub struct Data {
+    exported: Vec<Row>,
+    /// Every internal function folded into one `Metrics`, with the count, per side.
+    internal: [(Metrics, usize); 2],
 }
 
 /// Per-function size and complexity. Exports pair by name; internals are anonymous
 /// and unpairable across builds, so they collapse into one summed row.
-pub fn report(sdk: &Contract, solang: &Contract) {
+pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
+    let (sdk, solang) = (sdk.functions(), solang.functions());
+
+    let exported = exported_names(sdk, solang)
+        .into_iter()
+        .map(|name| Row {
+            sdk: find(sdk, &name).map(Metrics::of),
+            solang: find(solang, &name).map(Metrics::of),
+            name,
+        })
+        .collect();
+
+    Data {
+        exported,
+        internal: [internals(sdk), internals(solang)],
+    }
+}
+
+pub fn text(d: &Data) {
     super::banner("function-level metrics");
 
-    let (sdk, solang) = (sdk.functions(), solang.functions());
     header();
 
-    for name in exported_names(sdk, solang) {
-        let s = find(sdk, &name).map(Metrics::of);
-        let l = find(solang, &name).map(Metrics::of);
-        row(&name, s.as_ref(), l.as_ref());
+    for r in &d.exported {
+        row(&r.name, r.sdk.as_ref(), r.solang.as_ref());
     }
 
-    let (s, s_n) = internals(sdk);
-    let (l, l_n) = internals(solang);
+    let [(s, s_n), (l, l_n)] = &d.internal;
     if s_n + l_n > 0 {
         println!();
-        row(&format!("{s_n}│{l_n} internal"), Some(&s), Some(&l));
+        row(&format!("{s_n}│{l_n} internal"), Some(s), Some(l));
     }
 
     println!();
     println!("note: each function counts only its own code, not the functions it calls");
     println!();
+}
+
+/// A side without the function is `null`, and so is the `diff`. `internal` is `null` when
+/// neither side has internal functions, as the text then shows no row.
+pub fn json(d: &Data) -> Value {
+    let exported: Vec<Value> = d
+        .exported
+        .iter()
+        .map(|r| {
+            let diff = match (&r.sdk, &r.solang) {
+                (Some(s), Some(l)) => s.diff_json(l),
+                _ => Value::Null,
+            };
+            json!({
+                "function": r.name,
+                "sdk": r.sdk.as_ref().map(Metrics::json),
+                "solang": r.solang.as_ref().map(Metrics::json),
+                "diff": diff,
+            })
+        })
+        .collect();
+
+    let [(s, s_n), (l, l_n)] = &d.internal;
+    let internal = if s_n + l_n > 0 {
+        json!({
+            "count": { "sdk": s_n, "solang": l_n },
+            "sdk": s.json(),
+            "solang": l.json(),
+            "diff": s.diff_json(l),
+        })
+    } else {
+        Value::Null
+    };
+
+    json!({ "exported": exported, "internal": internal })
 }
 
 /// Exported names from both builds, sdk order first.

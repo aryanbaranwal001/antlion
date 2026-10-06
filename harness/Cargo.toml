@@ -11,3 +11,4 @@ path = "src/main.rs"
 [dependencies]
 soroban-env-host = { version = "28", features = ["testutils"] }
 wasmparser = "0.116"
+serde_json = { version = "1", features = ["preserve_order"] }
