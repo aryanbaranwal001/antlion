@@ -15,7 +15,7 @@ mod size;
 
 use crate::wasm::Contract;
 
-const SECTIONS: [&str; 10] = [
+const REPORTS: [&str; 10] = [
     "size",
     "sections",
     "imports",
@@ -36,7 +36,7 @@ const SCHEMA_VERSION: u32 = 1;
 pub fn run(args: &[String]) {
     let usage = format!(
         "[err] usage: --compare <name>... --report {}|all [--json] [--detail|--dump]",
-        SECTIONS.join("|")
+        REPORTS.join("|")
     );
 
     let names: Vec<&String> = args.iter().take_while(|a| !a.starts_with("--")).collect();
@@ -68,7 +68,7 @@ pub fn run(args: &[String]) {
     }
 
     let selected: Vec<&str> = if requested.contains(&"all") {
-        SECTIONS.to_vec()
+        REPORTS.to_vec()
     } else {
         requested
     };
@@ -157,7 +157,7 @@ pub fn run(args: &[String]) {
 
                 other => panic!(
                     "[err] unknown report `{other}` — pick from: {}, all",
-                    SECTIONS.join(", ")
+                    REPORTS.join(", ")
                 ),
             }
         }
