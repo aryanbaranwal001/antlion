@@ -71,9 +71,8 @@ pub struct Data {
 /// Invoke every function on both builds and compare what each one answers. Cost says how
 /// much the two spent; this says whether they agree.
 ///
-/// Each function runs twice. `small` uses values that ride inline in the `Val` word;
-/// `edge` uses boundary values, including 64 and 128 bit numbers too large for the 56 bit
-/// payload, which the host therefore passes as object handles.
+/// Each function is called once for each of the four value classes, plus the `authed`,
+/// malformed struct and `badarg` rows where they apply.
 pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
     let mut d = Data {
         no_spec: sdk.interface.funcs.is_empty(),

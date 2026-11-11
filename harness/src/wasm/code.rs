@@ -121,10 +121,6 @@ fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
 }
 /// Read the instruction stream, tagging each with its nesting depth.
 ///
-/// Only `Block`, `Loop` and `End` occur in our builds — LLVM lowers branches to
-/// `block` + `br_if`, so `If`/`Else` never appear.
-// TODO: remove redundant If / Else
-// TODO: check if all the operators have been taken into account
 /// A call is written `Call N`, and a call to an imported function also names the host
 /// function, e.g. `Call 3 ; put_contract_data`.
 fn read_body(body: &wasmparser::FunctionBody, host: &[String]) -> Vec<Instr> {
