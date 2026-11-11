@@ -1,4 +1,4 @@
-use crate::compare::REPORTS;
+use crate::compare::Report;
 use crate::error::{Error, Result};
 
 /// What the command line asks for.
@@ -45,9 +45,10 @@ pub fn parse(args: &[String]) -> Result<Command> {
 
 /// The arguments after `--compare`.
 fn compare(args: &[String]) -> Result<Compare> {
+    let names: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
     let usage = format!(
         "[err] usage: --compare <name>... --report {}|all [--json] [--detail|--dump]",
-        REPORTS.join("|")
+        names.join("|")
     );
 
     let names: Vec<String> = args
@@ -87,7 +88,7 @@ fn compare(args: &[String]) -> Result<Compare> {
     }
 
     let reports = if reports.iter().any(|r| r == "all") {
-        REPORTS.iter().map(|r| r.to_string()).collect()
+        Report::ALL.iter().map(|r| r.name().to_string()).collect()
     } else {
         reports.to_vec()
     };
@@ -170,7 +171,8 @@ mod tests {
     #[test]
     fn all_is_every_report() {
         let c = compare_of("--compare flow --report all");
-        assert_eq!(c.reports, REPORTS);
+        let every: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
+        assert_eq!(c.reports, every);
     }
 
     #[test]

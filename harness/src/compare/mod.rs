@@ -17,18 +17,64 @@ use crate::cli::{self, Mode};
 use crate::error::{Error, Result};
 use crate::wasm::Contract;
 
-pub const REPORTS: [&str; 10] = [
-    "size",
-    "sections",
-    "imports",
-    "interface",
-    "returns",
-    "cost",
-    "ledger",
-    "opcodes",
-    "functions",
-    "layout",
-];
+/// One of the reports `--compare` can run.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Report {
+    Size,
+    Sections,
+    Imports,
+    Interface,
+    Returns,
+    Cost,
+    Ledger,
+    Opcodes,
+    Functions,
+    Layout,
+}
+
+impl Report {
+    /// Every report, in the order `all` runs them.
+    pub const ALL: [Report; 10] = [
+        Report::Size,
+        Report::Sections,
+        Report::Imports,
+        Report::Interface,
+        Report::Returns,
+        Report::Cost,
+        Report::Ledger,
+        Report::Opcodes,
+        Report::Functions,
+        Report::Layout,
+    ];
+
+    /// The name used on the command line and as the JSON key.
+    pub fn name(self) -> &'static str {
+        match self {
+            Report::Size => "size",
+            Report::Sections => "sections",
+            Report::Imports => "imports",
+            Report::Interface => "interface",
+            Report::Returns => "returns",
+            Report::Cost => "cost",
+            Report::Ledger => "ledger",
+            Report::Opcodes => "opcodes",
+            Report::Functions => "functions",
+            Report::Layout => "layout",
+        }
+    }
+
+    /// The report with this name.
+    pub fn parse(s: &str) -> Result<Report> {
+        Report::ALL.into_iter().find(|r| r.name() == s).ok_or_else(|| {
+            let names: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
+            Error::usage(format!(
+                "unknown report `{s}` — pick from: {}, all",
+                names.join(", ")
+            ))
+        })
+    }
+}
+
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
@@ -53,51 +99,52 @@ pub fn run(args: &cli::Compare) -> Result<()> {
 
         for s in &args.reports {
             let out = &mut pair;
-            match s.as_str() {
-                "size" => emit(s, size::collect(&sdk, &solang), size::text, size::json, out),
-                "sections" => emit(
-                    s,
+            let r = Report::parse(s)?;
+            match r {
+                Report::Size => emit(r.name(), size::collect(&sdk, &solang), size::text, size::json, out),
+                Report::Sections => emit(
+                    r.name(),
                     section::collect(&sdk, &solang),
                     |d| section::text(d),
                     |d| section::json(d),
                     out,
                 ),
-                "imports" => emit(
-                    s,
+                Report::Imports => emit(
+                    r.name(),
                     imports::collect(&sdk, &solang),
                     imports::text,
                     imports::json,
                     out,
                 ),
-                "interface" => emit(
-                    s,
+                Report::Interface => emit(
+                    r.name(),
                     interface::collect(&sdk, &solang),
                     |d| interface::text(d),
                     |d| interface::json(d),
                     out,
                 ),
-                "returns" => emit(
-                    s,
+                Report::Returns => emit(
+                    r.name(),
                     returns::collect(&sdk, &solang),
                     |d| returns::text(name, d),
                     returns::json,
                     out,
                 ),
-                "cost" => emit(
-                    s,
+                Report::Cost => emit(
+                    r.name(),
                     cost::collect(&sdk, &solang),
                     |d| cost::text(name, d),
                     cost::json,
                     out,
                 ),
-                "ledger" => emit(
-                    s,
+                Report::Ledger => emit(
+                    r.name(),
                     ledger::collect(&sdk, &solang),
                     |d| ledger::text(name, d),
                     ledger::json,
                     out,
                 ),
-                "opcodes" => match out {
+                Report::Opcodes => match out {
                     None => opcodes::text(&sdk, &solang, args.mode),
                     // A disassembly is not numbers, so it has no JSON form.
                     Some(_) if args.mode == Mode::Dump => {
@@ -107,24 +154,18 @@ pub fn run(args: &cli::Compare) -> Result<()> {
                         }
                     }
                     Some(m) => {
-                        m.insert(s.to_string(), opcodes::json(&opcodes::collect(&sdk, &solang)));
+                        m.insert(r.name().to_string(), opcodes::json(&opcodes::collect(&sdk, &solang)));
                     }
                 },
-                "functions" => emit(
-                    s,
+                Report::Functions => emit(
+                    r.name(),
                     functions::collect(&sdk, &solang),
                     functions::text,
                     functions::json,
                     out,
                 ),
-                "layout" => emit(s, layout::collect(&sdk, &solang), layout::text, layout::json, out),
+                Report::Layout => emit(r.name(), layout::collect(&sdk, &solang), layout::text, layout::json, out),
 
-                other => {
-                    return Err(Error::usage(format!(
-                        "unknown report `{other}` — pick from: {}, all",
-                        REPORTS.join(", ")
-                    )));
-                }
             }
         }
 
