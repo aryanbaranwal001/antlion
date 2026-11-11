@@ -99,3 +99,84 @@ fn compare(args: &[String]) -> Result<Compare> {
         mode: mode.unwrap_or(Mode::Totals),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_str(line: &str) -> Result<Command> {
+        let args: Vec<String> = line.split_whitespace().map(String::from).collect();
+        parse(&args)
+    }
+
+    fn compare_of(line: &str) -> Compare {
+        match parse_str(line).unwrap() {
+            Command::Compare(c) => c,
+            _ => panic!("`{line}` is not a compare command"),
+        }
+    }
+
+    fn is_usage(line: &str) -> bool {
+        matches!(parse_str(line), Err(Error::Usage(_)))
+    }
+
+    #[test]
+    fn no_arguments() {
+        assert!(is_usage(""));
+    }
+
+    #[test]
+    fn version() {
+        assert!(matches!(parse_str("--version"), Ok(Command::Version)));
+    }
+
+    #[test]
+    fn build() {
+        assert!(matches!(
+            parse_str("--build contracts/flow"),
+            Ok(Command::Build(p)) if p == "contracts/flow"
+        ));
+        assert!(is_usage("--build"));
+    }
+
+    #[test]
+    fn compare_one_report() {
+        let c = compare_of("--compare flow --report size");
+        assert_eq!(c.names, ["flow"]);
+        assert_eq!(c.reports, ["size"]);
+        assert!(!c.json);
+        assert_eq!(c.mode, Mode::Totals);
+    }
+
+    #[test]
+    fn compare_several_names_and_reports() {
+        let c = compare_of("--compare a b --report size cost --json");
+        assert_eq!(c.names, ["a", "b"]);
+        assert_eq!(c.reports, ["size", "cost"]);
+        assert!(c.json);
+    }
+
+    #[test]
+    fn trailing_flags_in_any_order() {
+        let c = compare_of("--compare flow --report opcodes --detail --json");
+        assert!(c.json);
+        assert_eq!(c.mode, Mode::Detail);
+
+        let c = compare_of("--compare flow --report opcodes --json --dump");
+        assert!(c.json);
+        assert_eq!(c.mode, Mode::Dump);
+    }
+
+    #[test]
+    fn all_is_every_report() {
+        let c = compare_of("--compare flow --report all");
+        assert_eq!(c.reports, REPORTS);
+    }
+
+    #[test]
+    fn compare_errors() {
+        assert!(is_usage("--compare flow"));
+        assert!(is_usage("--compare --report all"));
+        assert!(is_usage("--compare flow --report"));
+    }
+}
