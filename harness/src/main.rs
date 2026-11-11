@@ -34,7 +34,7 @@ fn run() -> Result<()> {
             build::sdk::build(&dir, &out_dir)?;
             build::solang::build(&dir, &name, &out_dir)?;
         }
-        "--compare" => compare::run(&args.collect::<Vec<_>>()),
+        "--compare" => compare::run(&args.collect::<Vec<_>>())?,
         _ => return Err(Error::usage(usage)),
     }
     Ok(())
