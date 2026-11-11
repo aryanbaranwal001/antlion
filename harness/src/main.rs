@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use std::{env, fs};
 
 mod build;
