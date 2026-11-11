@@ -100,11 +100,22 @@ fn compare(args: &[String]) -> Result<Compare> {
     };
 
     Ok(Compare {
-        names,
-        reports,
+        names: first_of_each(names),
+        reports: first_of_each(reports),
         json,
         mode: mode.unwrap_or(Mode::Totals),
     })
+}
+
+/// `items` with each repeat removed, keeping the first one.
+fn first_of_each<T: PartialEq>(items: Vec<T>) -> Vec<T> {
+    let mut out = Vec::new();
+    for item in items {
+        if !out.contains(&item) {
+            out.push(item);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -178,6 +189,15 @@ mod tests {
     fn all_is_every_report() {
         let c = compare_of("--compare flow --report all");
         assert_eq!(c.reports, Report::ALL);
+    }
+
+    #[test]
+    fn repeats_are_used_once() {
+        assert_eq!(compare_of("--compare flow flow --report size").names, ["flow"]);
+        assert_eq!(
+            compare_of("--compare flow --report size size").reports,
+            [Report::Size]
+        );
     }
 
     #[test]
