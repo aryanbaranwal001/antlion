@@ -135,7 +135,7 @@ fn none() -> Cell {
 
 /// A page count with its byte equivalent, e.g. `16 (1 MiB)`.
 fn pages(l: &Layout, pick: impl Fn(&crate::wasm::Limits) -> Option<u32>) -> Cell {
-    match l.memory.as_ref().and_then(|m| pick(m)) {
+    match l.memory.as_ref().and_then(pick) {
         Some(p) => (format!("{p} ({})", bytes(p as u64 * PAGE)), Some(p as u64)),
         None => none(),
     }

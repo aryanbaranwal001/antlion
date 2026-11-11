@@ -174,14 +174,14 @@ pub fn text(name: &str, d: &Data) {
     }
 
     println!(
-        "{:<NAME$} {:<KIND$} {:<VALUE$} {:<VALUE$} {}",
-        "function", "input", "sdk", "solang", "verdict"
+        "{:<NAME$} {:<KIND$} {:<VALUE$} {:<VALUE$} verdict",
+        "function", "input", "sdk", "solang"
     );
     println!("{}", "─".repeat(NAME + KIND + VALUE * 2 + 10));
 
     for item in &d.items {
         match item {
-            Item::Unsupported(func) => println!("{:<NAME$} {}", func, "— unsupported arg types"),
+            Item::Unsupported(func) => println!("{func:<NAME$} — unsupported arg types"),
             Item::Row {
                 func,
                 input,

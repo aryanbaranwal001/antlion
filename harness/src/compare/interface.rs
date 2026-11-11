@@ -38,7 +38,7 @@ pub fn text(rows: &[Row]) {
         .max()
         .unwrap_or(0);
 
-    println!("{:<w$}  {}\n", "sdk", "solang");
+    println!("{:<w$}  solang\n", "sdk");
 
     for (s, l) in rows {
         println!("{s:<w$}  {l}");
