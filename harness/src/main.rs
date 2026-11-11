@@ -31,8 +31,8 @@ fn run() -> Result<()> {
             fs::create_dir_all(&out_dir)
                 .map_err(|_| Error::failed("failed to create the output directory"))?;
 
-            build::sdk::build(&dir, &out_dir);
-            build::solang::build(&dir, &name, &out_dir);
+            build::sdk::build(&dir, &out_dir)?;
+            build::solang::build(&dir, &name, &out_dir)?;
         }
         "--compare" => compare::run(&args.collect::<Vec<_>>()),
         _ => return Err(Error::usage(usage)),

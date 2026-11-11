@@ -1,5 +1,7 @@
 use std::{fs, path::{Path, PathBuf}};
 
+use crate::error::{Error, Result};
+
 pub mod sdk;
 pub mod solang;
 
@@ -18,9 +20,9 @@ pub fn name_of(arg: &str) -> String {
 /// Both compilers name their output after the crate or the solidity contract rather than
 /// after the directory, and neither has to match. Taking the one new file avoids having
 /// to predict the name.
-pub fn take_wasm(out_dir: &str, dest: &str) {
+pub fn take_wasm(out_dir: &str, dest: &str) -> Result<()> {
     let found: Vec<PathBuf> = fs::read_dir(out_dir)
-        .expect("[err] failed to read the output directory")
+        .map_err(|_| Error::failed("failed to read the output directory"))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "wasm"))
         .filter(|p| {
@@ -30,22 +32,27 @@ pub fn take_wasm(out_dir: &str, dest: &str) {
         .collect();
 
     let [built] = found.as_slice() else {
-        panic!("[err] expected one new wasm in {out_dir}, found {}", found.len());
+        return Err(Error::failed(format!(
+            "expected one new wasm in {out_dir}, found {}",
+            found.len()
+        )));
     };
 
-    fs::rename(built, format!("{out_dir}/{dest}")).expect("[err] failed to rename wasm");
+    fs::rename(built, format!("{out_dir}/{dest}"))
+        .map_err(|_| Error::failed("failed to rename wasm"))
 }
 
 /// The solidity source for the pair at `dir`, which is named after the directory:
 /// `<dir>/solang/<name>.sol`.
 ///
 /// The contract name inside the file is free, only the filename is fixed.
-pub fn sol_of(dir: &Path, name: &str) -> PathBuf {
+pub fn sol_of(dir: &Path, name: &str) -> Result<PathBuf> {
     let src = dir.join("solang").join(format!("{name}.sol"));
-    assert!(
-        src.exists(),
-        "[err] no solidity source at {}\n[err] the .sol must be named after its directory",
-        src.display()
-    );
-    src
+    if !src.exists() {
+        return Err(Error::failed(format!(
+            "no solidity source at {}\n[err] the .sol must be named after its directory",
+            src.display()
+        )));
+    }
+    Ok(src)
 }
