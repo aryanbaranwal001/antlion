@@ -11,7 +11,11 @@ const VERSION: &str = "antlion version v0.1.1";
 
 fn main() {
     if let Err(e) = run() {
-        panic!("{e}");
+        eprintln!("{e}");
+        std::process::exit(match e {
+            Error::Usage(_) => 2,
+            Error::Failed(_) => 1,
+        });
     }
 }
 
