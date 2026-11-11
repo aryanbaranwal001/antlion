@@ -97,9 +97,8 @@ pub fn run(args: &cli::Compare) -> Result<()> {
             title(name);
         }
 
-        for s in &args.reports {
+        for &r in &args.reports {
             let out = &mut pair;
-            let r = Report::parse(s)?;
             match r {
                 Report::Size => emit(r.name(), size::collect(&sdk, &solang), size::text, size::json, out),
                 Report::Sections => emit(

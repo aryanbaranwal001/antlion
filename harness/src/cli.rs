@@ -12,8 +12,8 @@ pub enum Command {
 pub struct Compare {
     /// Pair names, in the order given.
     pub names: Vec<String>,
-    /// Report names as typed, with `all` already replaced by every report.
-    pub reports: Vec<String>,
+    /// The reports to run, in the order given, with `all` already replaced by every report.
+    pub reports: Vec<Report>,
     pub json: bool,
     pub mode: Mode,
 }
@@ -87,10 +87,16 @@ fn compare(args: &[String]) -> Result<Compare> {
         )));
     }
 
+    // Every name is checked before any pair is read, so a wrong one stops the run before
+    // any output.
+    let mut parsed = Vec::new();
+    for r in reports.iter().filter(|r| *r != "all") {
+        parsed.push(Report::parse(r)?);
+    }
     let reports = if reports.iter().any(|r| r == "all") {
-        Report::ALL.iter().map(|r| r.name().to_string()).collect()
+        Report::ALL.to_vec()
     } else {
-        reports.to_vec()
+        parsed
     };
 
     Ok(Compare {
@@ -144,7 +150,7 @@ mod tests {
     fn compare_one_report() {
         let c = compare_of("--compare flow --report size");
         assert_eq!(c.names, ["flow"]);
-        assert_eq!(c.reports, ["size"]);
+        assert_eq!(c.reports, [Report::Size]);
         assert!(!c.json);
         assert_eq!(c.mode, Mode::Totals);
     }
@@ -153,7 +159,7 @@ mod tests {
     fn compare_several_names_and_reports() {
         let c = compare_of("--compare a b --report size cost --json");
         assert_eq!(c.names, ["a", "b"]);
-        assert_eq!(c.reports, ["size", "cost"]);
+        assert_eq!(c.reports, [Report::Size, Report::Cost]);
         assert!(c.json);
     }
 
@@ -171,8 +177,7 @@ mod tests {
     #[test]
     fn all_is_every_report() {
         let c = compare_of("--compare flow --report all");
-        let every: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
-        assert_eq!(c.reports, every);
+        assert_eq!(c.reports, Report::ALL);
     }
 
     #[test]
@@ -180,5 +185,6 @@ mod tests {
         assert!(is_usage("--compare flow"));
         assert!(is_usage("--compare --report all"));
         assert!(is_usage("--compare flow --report"));
+        assert!(is_usage("--compare flow --report size bogus"));
     }
 }
