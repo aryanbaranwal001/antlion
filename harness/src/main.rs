@@ -16,7 +16,7 @@ fn main() {
         "--version" => println!("{VERSION}"),
         "--build" => {
             let arg = args.next().expect(usage);
-            let dir = build::dir_of(&arg);
+            let dir = std::path::PathBuf::from(&arg);
             let name = build::name_of(&arg);
             let out_dir = format!("out/{name}");
             fs::create_dir_all(&out_dir).expect("[err] failed to create the output directory");

@@ -3,15 +3,6 @@ use std::{fs, path::{Path, PathBuf}};
 pub mod sdk;
 pub mod solang;
 
-/// Where a contract argument points.
-///
-/// Always a path, relative to the working directory unless absolute. A bare `flow` is
-/// `./flow`, so the tool is not tied to any particular tree and the bundled pairs are
-/// reached as `contracts/flow` like anything else.
-pub fn dir_of(arg: &str) -> PathBuf {
-    PathBuf::from(arg)
-}
-
 /// The contract's name, which is the last component of the argument. It names the output
 /// directory, so `contracts/flow` and `../elsewhere/flow` both build into `out/flow/`.
 pub fn name_of(arg: &str) -> String {
