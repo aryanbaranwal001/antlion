@@ -13,10 +13,11 @@ mod returns;
 mod section;
 mod size;
 
+use crate::cli::{self, Mode};
 use crate::error::{Error, Result};
 use crate::wasm::Contract;
 
-const REPORTS: [&str; 10] = [
+pub const REPORTS: [&str; 10] = [
     "size",
     "sections",
     "imports",
@@ -34,54 +35,12 @@ const WIDTH: usize = 90;
 const SCHEMA_VERSION: u32 = 1;
 
 /// Run the requested reports over every named contract, in the order given.
-pub fn run(args: &[String]) -> Result<()> {
-    let usage = format!(
-        "[err] usage: --compare <name>... --report {}|all [--json] [--detail|--dump]",
-        REPORTS.join("|")
-    );
-
-    let names: Vec<&String> = args.iter().take_while(|a| !a.starts_with("--")).collect();
-    if names.is_empty() {
-        return Err(Error::usage(format!("no contract given\n{usage}")));
-    }
-
-    let Some(("--report", rest)) = args[names.len()..]
-        .split_first()
-        .map(|(flag, rest)| (flag.as_str(), rest))
-    else {
-        return Err(Error::usage(format!(
-            "no report requested — pass `--report all` for every report\n{usage}"
-        )));
-    };
-
-    // Trailing flags, in any order: `--json`, and one of `--detail` or `--dump`.
-    let (mut reports, mut json, mut mode) = (rest, false, None);
-    while let Some((last, elements)) = reports.split_last() {
-        match last.as_str() {
-            "--json" if !json => json = true,
-            "--detail" | "--dump" if mode.is_none() => mode = Some(last.as_str()),
-            _ => break,
-        }
-        reports = elements;
-    }
-
-    let requested: Vec<&str> = reports.iter().map(String::as_str).collect();
-    if requested.is_empty() {
-        return Err(Error::usage(format!(
-            "`--report` needs a report name — pass `all` for every report\n{usage}"
-        )));
-    }
-
-    let selected: Vec<&str> = if requested.contains(&"all") {
-        REPORTS.to_vec()
-    } else {
-        requested
-    };
-
+pub fn run(args: &cli::Compare) -> Result<()> {
+    let json = args.json;
     let mut pairs = Vec::new();
     let mut no_json = Vec::new();
 
-    for name in names {
+    for name in &args.names {
         let (sdk_wasm, solang_wasm) = load(name)?;
         let sdk = Contract::load(&sdk_wasm);
         let solang = Contract::load(&solang_wasm);
@@ -92,9 +51,9 @@ pub fn run(args: &[String]) -> Result<()> {
             title(name);
         }
 
-        for s in &selected {
+        for s in &args.reports {
             let out = &mut pair;
-            match *s {
+            match s.as_str() {
                 "size" => emit(s, size::collect(&sdk, &solang), size::text, size::json, out),
                 "sections" => emit(
                     s,
@@ -139,9 +98,9 @@ pub fn run(args: &[String]) -> Result<()> {
                     out,
                 ),
                 "opcodes" => match out {
-                    None => opcodes::text(&sdk, &solang, mode),
+                    None => opcodes::text(&sdk, &solang, args.mode),
                     // A disassembly is not numbers, so it has no JSON form.
-                    Some(_) if mode == Some("--dump") => {
+                    Some(_) if args.mode == Mode::Dump => {
                         let note = "opcodes --dump".to_string();
                         if !no_json.contains(&note) {
                             no_json.push(note);

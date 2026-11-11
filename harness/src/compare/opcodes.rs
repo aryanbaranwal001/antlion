@@ -1,3 +1,4 @@
+use crate::cli::Mode;
 use crate::wasm::{Contract, code};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -77,11 +78,11 @@ pub fn collect<'a>(sdk: &'a Contract, solang: &'a Contract) -> Data<'a> {
 }
 
 /// Dispatch on the trailing flag: `--detail`, `--dump`, or the bucket totals.
-pub fn text(sdk: &Contract, solang: &Contract, mode: Option<&str>) {
+pub fn text(sdk: &Contract, solang: &Contract, mode: Mode) {
     match mode {
-        Some("--detail") => detail(&collect(sdk, solang)),
-        Some("--dump") => dump(sdk, solang),
-        _ => default(&collect(sdk, solang)),
+        Mode::Detail => detail(&collect(sdk, solang)),
+        Mode::Dump => dump(sdk, solang),
+        Mode::Totals => default(&collect(sdk, solang)),
     }
 }
 

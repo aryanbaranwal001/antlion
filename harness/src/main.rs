@@ -1,8 +1,10 @@
 use std::{env, fs};
 
+use cli::Command;
 use error::{Error, Result};
 
 mod build;
+mod cli;
 mod compare;
 mod error;
 mod wasm;
@@ -20,15 +22,12 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let mut args = env::args().skip(1);
-    let usage = "usage: --build <contract> | --compare <contract>... --report <report>... | --help | --version";
-    let cmd = args.next().ok_or_else(|| Error::usage(usage))?;
+    let args: Vec<String> = env::args().skip(1).collect();
 
-    match cmd.as_str() {
-        "--help" => print!("{}", include_str!("../../help.md")),
-        "--version" => println!("{VERSION}"),
-        "--build" => {
-            let arg = args.next().ok_or_else(|| Error::usage(usage))?;
+    match cli::parse(&args)? {
+        Command::Help => print!("{}", include_str!("../../help.md")),
+        Command::Version => println!("{VERSION}"),
+        Command::Build(arg) => {
             let dir = std::path::PathBuf::from(&arg);
             let name = build::name_of(&arg);
             let out_dir = format!("out/{name}");
@@ -38,8 +37,7 @@ fn run() -> Result<()> {
             build::sdk::build(&dir, &out_dir)?;
             build::solang::build(&dir, &name, &out_dir)?;
         }
-        "--compare" => compare::run(&args.collect::<Vec<_>>())?,
-        _ => return Err(Error::usage(usage)),
+        Command::Compare(c) => compare::run(&c)?,
     }
     Ok(())
 }
