@@ -21,16 +21,17 @@ pub struct Contract<'a> {
 }
 
 impl<'a> Contract<'a> {
-    pub fn load(wasm: &'a [u8]) -> Self {
+    /// Read the module. The error says what is malformed.
+    pub fn load(wasm: &'a [u8]) -> Result<Self, String> {
         let sections = sections(wasm);
-        Contract {
+        Ok(Contract {
             imports: imports(wasm, &sections),
-            interface: spec::parse(wasm, &sections),
+            interface: spec::parse(wasm, &sections)?,
             layout: layout(wasm, &sections),
             functions: OnceCell::new(),
             sections,
             wasm,
-        }
+        })
     }
 
     /// Locally defined functions, in code-section order.

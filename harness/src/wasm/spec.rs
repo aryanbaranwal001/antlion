@@ -22,26 +22,24 @@ pub struct Interface {
     pub structs: Vec<StructSpec>,
 }
 
-/// Read `contractspecv0` and XDR-decode its function and struct entries.
-pub fn parse(wasm: &[u8], sections: &[super::Section]) -> Interface {
+/// Read `contractspecv0` and XDR-decode its function and struct entries. A damaged entry
+/// is an error, so the list of functions is never cut short without a message.
+pub fn parse(wasm: &[u8], sections: &[super::Section]) -> Result<Interface, String> {
+    let mut funcs = Vec::new();
+    let mut structs = Vec::new();
     let Some(bytes) = super::custom_section(wasm, sections, "contractspecv0") else {
-        return Interface {
-            funcs: Vec::new(),
-            structs: Vec::new(),
-        };
+        return Ok(Interface { funcs, structs });
     };
 
     let mut reader = Limited::new(Cursor::new(bytes), Limits::none());
-    let mut funcs = Vec::new();
-    let mut structs = Vec::new();
     for entry in ScSpecEntry::read_xdr_iter(&mut reader) {
-        match entry {
-            Ok(ScSpecEntry::FunctionV0(f)) => funcs.push(FnSpec {
+        match entry.map_err(|e| format!("malformed contractspecv0: {e}"))? {
+            ScSpecEntry::FunctionV0(f) => funcs.push(FnSpec {
                 name: f.name.0.to_utf8_string_lossy(),
                 inputs: f.inputs.iter().map(|i| i.type_.clone()).collect(),
                 output: f.outputs.first().cloned(),
             }),
-            Ok(ScSpecEntry::UdtStructV0(u)) => structs.push(StructSpec {
+            ScSpecEntry::UdtStructV0(u) => structs.push(StructSpec {
                 name: u.name.to_utf8_string_lossy(),
                 fields: u
                     .fields
@@ -53,7 +51,7 @@ pub fn parse(wasm: &[u8], sections: &[super::Section]) -> Interface {
         }
     }
 
-    Interface { funcs, structs }
+    Ok(Interface { funcs, structs })
 }
 
 /// Human-readable signature, e.g. `add(u32, u32) -> u32`.

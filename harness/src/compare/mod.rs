@@ -88,8 +88,10 @@ pub fn run(args: &cli::Compare) -> Result<()> {
 
     for name in &args.names {
         let (sdk_wasm, solang_wasm) = load(name)?;
-        let sdk = Contract::load(&sdk_wasm);
-        let solang = Contract::load(&solang_wasm);
+        let sdk = Contract::load(&sdk_wasm)
+            .map_err(|e| Error::failed(format!("{name} sdk.wasm: {e}")))?;
+        let solang = Contract::load(&solang_wasm)
+            .map_err(|e| Error::failed(format!("{name} solang.wasm: {e}")))?;
 
         // In JSON mode each report adds its key here; in text mode it prints.
         let mut pair = json.then(|| Map::from_iter([("name".to_string(), json!(name))]));
