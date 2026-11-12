@@ -22,12 +22,12 @@ pub struct Interface {
     pub structs: Vec<StructSpec>,
 }
 
-/// Read `contractspecv0` and XDR-decode its function and struct entries. A damaged entry
-/// is an error, so the list of functions is never cut short without a message.
-pub fn parse(wasm: &[u8], sections: &[super::Section]) -> Result<Interface, String> {
+/// XDR-decode the function and struct entries of `contractspecv0`. A damaged entry is an
+/// error, so the list of functions is never cut short without a message.
+pub fn parse(bytes: Option<&[u8]>) -> Result<Interface, String> {
     let mut funcs = Vec::new();
     let mut structs = Vec::new();
-    let Some(bytes) = super::custom_section(wasm, sections, "contractspecv0") else {
+    let Some(bytes) = bytes else {
         return Ok(Interface { funcs, structs });
     };
 

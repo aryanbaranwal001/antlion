@@ -2,7 +2,8 @@ pub mod code;
 pub mod names;
 pub mod spec;
 
-use std::cell::OnceCell;
+use std::collections::HashMap;
+use wasmparser::{Parser, Payload, RefType, TypeRef};
 
 /// One built contract, parsed once.
 pub struct Contract<'a> {
@@ -16,156 +17,151 @@ pub struct Contract<'a> {
     pub interface: spec::Interface,
     /// What the VM allocates at instantiation.
     pub layout: Layout,
-    /// Function bodies, lazily decoded on first use.
-    functions: OnceCell<Vec<code::Function>>,
+    /// Locally defined functions, in code-section order.
+    functions: Vec<code::Function>,
 }
 
 impl<'a> Contract<'a> {
-    /// Read the module. The error says what is malformed.
+    /// Read the module in one pass. The error says what is malformed.
     pub fn load(wasm: &'a [u8]) -> Result<Self, String> {
-        let sections = sections(wasm);
+        let mut sections = Vec::new();
+        let mut imports = Vec::new();
+        let mut layout = Layout::default();
+        let mut spec_bytes: Option<&[u8]> = None;
+        let mut functions = Vec::new();
+
+        // Imported function names in index order, so a call to import N can name
+        // its target.
+        let mut host: Vec<String> = Vec::new();
+        let mut exported: HashMap<u32, String> = HashMap::new();
+
+        let bad = |e: wasmparser::BinaryReaderError| format!("malformed wasm: {e}");
+        let mut section = |name: &str, size: usize| {
+            sections.push(Section {
+                name: name.to_string(),
+                size,
+            })
+        };
+
+        for payload in Parser::new(0).parse_all(wasm) {
+            match payload.map_err(bad)? {
+                Payload::TypeSection(r) => section("type", r.range().len()),
+                Payload::ImportSection(r) => {
+                    section("import", r.range().len());
+                    for im in r {
+                        let im = im.map_err(bad)?;
+                        imports.push((im.module.to_string(), im.name.to_string()));
+                        match im.ty {
+                            TypeRef::Func(_) => host.push(
+                                names::host_fn_name(im.module, im.name)
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| {
+                                        format!("{}.{}", im.module, im.name)
+                                    }),
+                            ),
+                            TypeRef::Table(t) => {
+                                layout.table = Some((
+                                    reftype(t.element_type),
+                                    limits(t.initial, t.maximum),
+                                ));
+                                layout.table_imported = true;
+                            }
+                            TypeRef::Memory(m) => {
+                                layout.memory = Some(limits(
+                                    m.initial as u32,
+                                    m.maximum.map(|v| v as u32),
+                                ));
+                                layout.memory_imported = true;
+                            }
+                            TypeRef::Global(_) | TypeRef::Tag(_) => layout.globals += 1,
+                        }
+                    }
+                }
+                Payload::FunctionSection(r) => section("function", r.range().len()),
+                Payload::TableSection(r) => {
+                    section("table", r.range().len());
+                    if let Some(t) = r.into_iter().next() {
+                        let t = t.map_err(bad)?.ty;
+                        if !layout.table_imported {
+                            layout.table = Some((
+                                reftype(t.element_type),
+                                limits(t.initial, t.maximum),
+                            ));
+                        }
+                    }
+                }
+                Payload::MemorySection(r) => {
+                    section("memory", r.range().len());
+                    if let Some(m) = r.into_iter().next() {
+                        let m = m.map_err(bad)?;
+                        if !layout.memory_imported {
+                            layout.memory = Some(limits(
+                                m.initial as u32,
+                                m.maximum.map(|v| v as u32),
+                            ));
+                        }
+                    }
+                }
+                Payload::TagSection(r) => section("unknown", r.range().len()),
+                Payload::GlobalSection(r) => {
+                    section("global", r.range().len());
+                    layout.globals += r.count();
+                }
+                Payload::ExportSection(r) => {
+                    section("export", r.range().len());
+                    for e in r {
+                        let e = e.map_err(bad)?;
+                        if matches!(e.kind, wasmparser::ExternalKind::Func) {
+                            exported.insert(e.index, e.name.to_string());
+                        }
+                    }
+                }
+                Payload::StartSection { range, .. } => section("start", range.len()),
+                Payload::ElementSection(r) => section("element", r.range().len()),
+                Payload::DataCountSection { range, .. } => {
+                    section("data_count", range.len())
+                }
+                Payload::DataSection(r) => {
+                    section("data", r.range().len());
+                    layout.data_segments = r.count();
+                    layout.data_bytes = r.range().len();
+                }
+                Payload::CodeSectionStart { range, .. } => section("code", range.len()),
+                Payload::CodeSectionEntry(body) => {
+                    let index = (host.len() + functions.len()) as u32;
+                    let name = exported.get(&index).cloned();
+                    functions.push(code::function(&body, index, name, &host)?);
+                }
+                Payload::CustomSection(r) => {
+                    section(&format!("custom:{}", r.name()), r.range().len());
+                    if r.name() == "contractspecv0" && spec_bytes.is_none() {
+                        spec_bytes = Some(r.data());
+                    }
+                }
+                _ => {}
+            }
+        }
+
         Ok(Contract {
-            imports: imports(wasm, &sections),
-            interface: spec::parse(wasm, &sections)?,
-            layout: layout(wasm, &sections),
-            functions: OnceCell::new(),
-            sections,
             wasm,
+            sections,
+            imports,
+            interface: spec::parse(spec_bytes)?,
+            layout,
+            functions,
         })
     }
 
     /// Locally defined functions, in code-section order.
     pub fn functions(&self) -> &[code::Function] {
-        self.functions.get_or_init(|| code::functions(self.wasm))
+        &self.functions
     }
 }
 
-/// Where one section's payload lives. `name` is `custom:<name>` for custom sections.
+/// One section's name and payload size. `name` is `custom:<name>` for custom sections.
 pub struct Section {
-    pub id: u8,
     pub name: String,
-    pub start: usize,
     pub size: usize,
-}
-
-/// Read every section header, from byte 8 past the magic and version.
-pub fn sections(bytes: &[u8]) -> Vec<Section> {
-    let mut out = Vec::new();
-    let mut i = 8;
-
-    while i < bytes.len() {
-        let id = bytes[i];
-        i += 1;
-
-        let (size, len) = read_leb128(&bytes[i..]);
-        i += len;
-        let size = size as usize;
-
-        let mut name = section_name(id).to_string();
-        if id == 0 {
-            let (nlen, nb) = read_leb128(&bytes[i..]);
-            let start = i + nb;
-            let sname = String::from_utf8_lossy(&bytes[start..start + nlen as usize]);
-            name = format!("custom:{sname}");
-        }
-
-        out.push(Section {
-            id,
-            name,
-            start: i,
-            size,
-        });
-        i += size;
-    }
-    out
-}
-
-/// The spec's name for a section id.
-fn section_name(id: u8) -> &'static str {
-    match id {
-        0 => "custom",
-        1 => "type",
-        2 => "import",
-        3 => "function",
-        4 => "table",
-        5 => "memory",
-        6 => "global",
-        7 => "export",
-        8 => "start",
-        9 => "element",
-        10 => "code",
-        11 => "data",
-        12 => "data_count",
-        _ => "unknown",
-    }
-}
-
-/// Read an unsigned LEB128 integer: (value, bytes_consumed).
-pub fn read_leb128(bytes: &[u8]) -> (u32, usize) {
-    let mut result = 0u32;
-    let mut shift = 0;
-    let mut i = 0;
-
-    loop {
-        let byte = bytes[i];
-        result |= ((byte & 0x7f) as u32) << shift;
-        i += 1;
-        if byte & 0x80 == 0 {
-            break;
-        }
-        shift += 7;
-    }
-    (result, i)
-}
-
-/// Every `(module, name)` the module imports.
-pub fn imports(bytes: &[u8], sections: &[Section]) -> Vec<(String, String)> {
-    sections
-        .iter()
-        .find(|s| s.id == 2)
-        .map(|s| decode_imports(&bytes[s.start..s.start + s.size]))
-        .unwrap_or_default()
-}
-
-/// Decode the import section body. Kind byte: `0` func, `1` table, `2` memory,
-/// `3` global — each followed by a descriptor we skip.
-fn decode_imports(body: &[u8]) -> Vec<(String, String)> {
-    let mut j = 0;
-    let (count, len) = read_leb128(&body[j..]);
-    j += len;
-
-    let mut out = Vec::new();
-    for _ in 0..count {
-        let module = read_name(body, &mut j);
-        let name = read_name(body, &mut j);
-
-        let kind = body[j];
-        j += 1;
-
-        match kind {
-            0 => j += read_leb128(&body[j..]).1,
-            1 => {
-                j += 1;
-                read_limits(body, &mut j);
-            }
-            2 => {
-                read_limits(body, &mut j);
-            }
-            _ => j += 2,
-        }
-
-        out.push((module, name));
-    }
-    out
-}
-
-/// Read a length-prefixed UTF-8 name, advancing `*j` past it.
-fn read_name(body: &[u8], j: &mut usize) -> String {
-    let (nlen, nb) = read_leb128(&body[*j..]);
-    let start = *j + nb;
-    let end = start + nlen as usize;
-    *j = end;
-    String::from_utf8_lossy(&body[start..end]).into_owned()
 }
 
 /// A memory's or table's declared size. No `max` means it can grow unbounded.
@@ -175,20 +171,7 @@ pub struct Limits {
     pub max: Option<u32>,
 }
 
-/// Read a limits, advancing `*j` past it.
-fn read_limits(body: &[u8], j: &mut usize) -> Limits {
-    let flag = body[*j];
-    *j += 1;
-
-    let (min, n) = read_leb128(&body[*j..]);
-    *j += n;
-
-    let mut max = None;
-    if flag & 1 != 0 {
-        let (m, n) = read_leb128(&body[*j..]);
-        *j += n;
-        max = Some(m);
-    }
+fn limits(min: u32, max: Option<u32>) -> Limits {
     Limits { min, max }
 }
 
@@ -205,92 +188,13 @@ pub struct Layout {
     pub data_bytes: usize,
 }
 
-/// Decode the memory, table, global and data declarations, defined or imported.
-pub fn layout(bytes: &[u8], sections: &[Section]) -> Layout {
-    let mut out = Layout::default();
-    let body = |id: u8| {
-        sections
-            .iter()
-            .find(|s| s.id == id)
-            .map(|s| (&bytes[s.start..s.start + s.size], s.size))
-    };
-
-    if let Some((b, _)) = body(5) {
-        let (_, mut j) = read_leb128(b);
-        out.memory = Some(read_limits(b, &mut j));
-    }
-
-    if let Some((b, _)) = body(4) {
-        let (n, mut j) = read_leb128(b);
-        if n > 0 {
-            let elem = reftype(b[j]);
-            j += 1;
-            out.table = Some((elem, read_limits(b, &mut j)));
-        }
-    }
-
-    if let Some((b, _)) = body(6) {
-        out.globals = read_leb128(b).0;
-    }
-
-    if let Some((b, size)) = body(11) {
-        out.data_segments = read_leb128(b).0;
-        out.data_bytes = size;
-    }
-
-    if let Some((b, _)) = body(2) {
-        imported_layout(b, &mut out);
-    }
-    out
-}
-
-/// Fold imported memories, tables and globals into `out`.
-fn imported_layout(body: &[u8], out: &mut Layout) {
-    let (count, mut j) = read_leb128(body);
-
-    for _ in 0..count {
-        read_name(body, &mut j);
-        read_name(body, &mut j);
-
-        let kind = body[j];
-        j += 1;
-
-        match kind {
-            0 => j += read_leb128(&body[j..]).1,
-            1 => {
-                let elem = reftype(body[j]);
-                j += 1;
-                out.table = Some((elem, read_limits(body, &mut j)));
-                out.table_imported = true;
-            }
-            2 => {
-                out.memory = Some(read_limits(body, &mut j));
-                out.memory_imported = true;
-            }
-            _ => {
-                j += 2;
-                out.globals += 1;
-            }
-        }
-    }
-}
-
 /// A table's element type.
-fn reftype(b: u8) -> &'static str {
-    match b {
-        0x70 => "funcref",
-        0x6f => "externref",
-        _ => "?",
+fn reftype(t: RefType) -> &'static str {
+    if t == RefType::FUNCREF {
+        "funcref"
+    } else if t == RefType::EXTERNREF {
+        "externref"
+    } else {
+        "?"
     }
-}
-
-/// Payload of the custom section named `want`, past its name prefix.
-pub fn custom_section<'a>(bytes: &'a [u8], sections: &[Section], want: &str) -> Option<&'a [u8]> {
-    let s = sections
-        .iter()
-        .find(|s| s.name.strip_prefix("custom:") == Some(want))?;
-
-    let body = &bytes[s.start..s.start + s.size];
-    let (nlen, nb) = read_leb128(body);
-    Some(&body[nb + nlen as usize..])
 }

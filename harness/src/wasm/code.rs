@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use wasmparser::{Parser, Payload};
-
 /// One instruction: its `Debug` text with immediates, and its nesting depth.
 pub struct Instr {
     pub text: String,
@@ -47,92 +44,59 @@ impl Function {
     }
 }
 
-/// Every locally defined function, in code-section order. A body's index is its
-/// position plus the number of imported functions.
-pub fn functions(wasm: &[u8]) -> Vec<Function> {
-    let mut imported_funcs = 0u32;
-    // Imported function names in index order, so a call to import N can name its target.
-    let mut host: Vec<String> = Vec::new();
-    let mut names: HashMap<u32, String> = HashMap::new();
-    let mut local_i = 0u32;
-    let mut out = Vec::new();
-
-    for payload in Parser::new(0).parse_all(wasm) {
-        match payload {
-            Ok(Payload::ImportSection(reader)) => {
-                for im in reader.into_iter().filter_map(Result::ok) {
-                    if matches!(im.ty, wasmparser::TypeRef::Func(_)) {
-                        imported_funcs += 1;
-                        host.push(
-                            super::names::host_fn_name(im.module, im.name)
-                                .map(str::to_string)
-                                .unwrap_or_else(|| format!("{}.{}", im.module, im.name)),
-                        );
-                    }
-                }
-            }
-
-            Ok(Payload::ExportSection(reader)) => {
-                for e in reader.into_iter().filter_map(Result::ok) {
-                    if matches!(e.kind, wasmparser::ExternalKind::Func) {
-                        names.insert(e.index, e.name.to_string());
-                    }
-                }
-            }
-            Ok(Payload::CodeSectionEntry(body)) => {
-                let index = imported_funcs + local_i;
-                local_i += 1;
-                let (locals, local_count) = locals_line(&body);
-                out.push(Function {
-                    index,
-                    name: names.get(&index).cloned(),
-                    bytes: body.range().len(),
-                    local_count,
-                    locals,
-                    instrs: read_body(&body, &host),
-                });
-            }
-            _ => {}
-        }
-    }
-    out
+/// One function body. `index` is its position plus the number of imported functions.
+pub fn function(
+    body: &wasmparser::FunctionBody,
+    index: u32,
+    name: Option<String>,
+    host: &[String],
+) -> Result<Function, String> {
+    let (locals, local_count) = locals_line(body)?;
+    Ok(Function {
+        index,
+        name,
+        bytes: body.range().len(),
+        local_count,
+        locals,
+        instrs: read_body(body, host)?,
+    })
 }
 
 /// The locals as one line, e.g. `locals: 2× i32, 1× i64`, plus the total count.
 /// They're run-length encoded, so the total sums the counts, not the declarations.
-fn locals_line(body: &wasmparser::FunctionBody) -> (String, u32) {
-    let reader = body
+fn locals_line(body: &wasmparser::FunctionBody) -> Result<(String, u32), String> {
+    let bad = |e: wasmparser::BinaryReaderError| format!("malformed function body: {e}");
+    let decls = body
         .get_locals_reader()
-        .expect("[err] malformed function body: no locals reader");
-
-    let decls: Vec<(u32, wasmparser::ValType)> =
-        reader.into_iter().filter_map(Result::ok).collect();
+        .map_err(bad)?
+        .into_iter()
+        .collect::<Result<Vec<(u32, wasmparser::ValType)>, _>>()
+        .map_err(bad)?;
     let total = decls.iter().map(|(n, _)| n).sum();
 
     if decls.is_empty() {
-        return ("locals: none".to_string(), 0);
+        return Ok(("locals: none".to_string(), 0));
     }
 
     let text: Vec<String> = decls
         .iter()
         .map(|(n, t)| format!("{n}× {}", valtype(*t)))
         .collect();
-    (format!("locals: {}", text.join(", ")), total)
+    Ok((format!("locals: {}", text.join(", ")), total))
 }
 /// Read the instruction stream, tagging each with its nesting depth.
 ///
 /// A call is written `Call N`, and a call to an imported function also names the host
 /// function, e.g. `Call 3 ; put_contract_data`.
-fn read_body(body: &wasmparser::FunctionBody, host: &[String]) -> Vec<Instr> {
-    let mut reader = body
-        .get_operators_reader()
-        .expect("[err] malformed function body: no operators reader");
+fn read_body(body: &wasmparser::FunctionBody, host: &[String]) -> Result<Vec<Instr>, String> {
+    let bad = |e: wasmparser::BinaryReaderError| format!("malformed function body: {e}");
+    let mut reader = body.get_operators_reader().map_err(bad)?;
 
     let mut out = Vec::new();
     let mut depth = 0usize;
 
     while !reader.eof() {
-        let Ok(op) = reader.read() else { break };
+        let op = reader.read().map_err(bad)?;
 
         let text = match op {
             wasmparser::Operator::Call { function_index } => {
@@ -158,7 +122,7 @@ fn read_body(body: &wasmparser::FunctionBody, host: &[String]) -> Vec<Instr> {
             depth += 1;
         }
     }
-    out
+    Ok(out)
 }
 
 /// A value type's spec name.
