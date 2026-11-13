@@ -1,10 +1,7 @@
 use serde_json::{Value, json};
-use soroban_env_host::{
-    Env, EnvBase, Host, HostError, Symbol, TryFromVal, Val,
-    testutils::{generate_account_id, generate_bytes_array},
-    xdr::ScVal,
-};
+use soroban_env_host::{Host, HostError, TryFromVal, Val, xdr::ScVal};
 
+use super::call::{Setup, deploy_and_call};
 use crate::wasm::{Contract, spec};
 
 const NAME: usize = 15;
@@ -252,30 +249,21 @@ fn row(func: &str, label: &str, s: &Answer, l: &Answer, verdict: &str) {
     }
 }
 
-/// Deploy `wasm`, call `func` with the arguments `args` builds, and return what it answered.
-/// `args` gets the host and the contract's own address, because object handles belong to
-/// the host that runs the call. With `authed`, the host grants every authorization the call
-/// asks for; without it, none.
+/// What `func` answers for the arguments `args` builds. With `authed`, the host grants
+/// every authorization the call asks for; without it, none.
 fn invoke(
     wasm: &[u8],
     func: &str,
     authed: bool,
     args: impl Fn(&Host, Val) -> Result<Vec<Val>, HostError>,
 ) -> Result<ScVal, HostError> {
-    let host = Host::test_host_with_recording_footprint();
-    let account = generate_account_id(&host);
-    let salt = generate_bytes_array(&host);
-    let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
-    if authed {
-        host.switch_to_recording_auth(false)?;
-    }
-
-    let args = args(&host, contract.to_val())?;
-    let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
-    let argv = host.vec_new_from_slice(&args)?;
-
-    let out = host.call(contract, sym, argv)?;
-    Ok(ScVal::try_from_val(&host, &out)?)
+    let setup = Setup {
+        cached: false,
+        authed,
+    };
+    deploy_and_call(wasm, func, setup, args, |host, out, _| {
+        Ok(ScVal::try_from_val(host, &out)?)
+    })
 }
 
 /// One value, trimmed to fit its column.
