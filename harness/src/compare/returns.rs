@@ -71,57 +71,72 @@ pub struct Data {
 /// Each function is called once for each of the four value classes, plus the `authed`,
 /// malformed struct and `badarg` rows where they apply.
 pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
+    let (sw, lw, iface) = (sdk.wasm, solang.wasm, &sdk.interface);
+    let parts: Vec<Data> = iface.funcs.iter().map(|f| one(sw, lw, iface, f)).collect();
+
     let mut d = Data {
-        no_spec: sdk.interface.funcs.is_empty(),
+        no_spec: iface.funcs.is_empty(),
+        items: Vec::new(),
+        checked: 0,
+        differ: 0,
+    };
+    for p in parts {
+        d.items.extend(p.items);
+        d.checked += p.checked;
+        d.differ += p.differ;
+    }
+    d
+}
+
+/// Every row of one function.
+fn one(sdk: &[u8], solang: &[u8], iface: &spec::Interface, f: &spec::FnSpec) -> Data {
+    let mut d = Data {
+        no_spec: false,
         items: Vec::new(),
         checked: 0,
         differ: 0,
     };
 
-    for f in &sdk.interface.funcs {
-        if !spec::args_supported(&sdk.interface, &f.inputs) {
-            d.items.push(Item::Unsupported(f.name.clone()));
-            continue;
-        }
+    if !spec::args_supported(iface, &f.inputs) {
+        d.items.push(Item::Unsupported(f.name.clone()));
+        return d;
+    }
 
-        for kind in spec::ALL_INPUTS {
-            let args = |h: &Host, addr| spec::build_args(h, addr, &sdk.interface, &f.inputs, kind);
-            let s = invoke(sdk.wasm, &f.name, false, args);
-            let l = invoke(solang.wasm, &f.name, false, args);
-            d.row(&f.name, kind.label(), &s, &l);
-        }
+    for kind in spec::ALL_INPUTS {
+        let args = |h: &Host, addr| spec::build_args(h, addr, iface, &f.inputs, kind);
+        let s = invoke(sdk, &f.name, false, args);
+        let l = invoke(solang, &f.name, false, args);
+        d.row(&f.name, kind.label(), &s, &l);
+    }
 
-        // Every other row runs with no authorization, so `require_auth` fails. This one
-        // grants whatever is asked for, to see what each side does once it passes.
-        if spec::takes_address(&f.inputs) {
-            let args = |h: &Host, addr| {
-                spec::build_args(h, addr, &sdk.interface, &f.inputs, spec::Inputs::Small)
-            };
-            let s = invoke(sdk.wasm, &f.name, true, args);
-            let l = invoke(solang.wasm, &f.name, true, args);
-            d.row(&f.name, "authed", &s, &l);
-        }
+    // Every other row runs with no authorization, so `require_auth` fails. This one
+    // grants whatever is asked for, to see what each side does once it passes.
+    if spec::takes_address(&f.inputs) {
+        let args =
+            |h: &Host, addr| spec::build_args(h, addr, iface, &f.inputs, spec::Inputs::Small);
+        let s = invoke(sdk, &f.name, true, args);
+        let l = invoke(solang, &f.name, true, args);
+        d.row(&f.name, "authed", &s, &l);
+    }
 
-        // A struct argument is also sent in shapes neither side should accept. Both
-        // rejecting is the expected answer; one side accepting is the divergence.
-        if spec::takes_struct(&f.inputs) {
-            for m in spec::ALL_MALFORMED {
-                let args =
-                    |h: &Host, addr| spec::build_malformed(h, addr, &sdk.interface, &f.inputs, m);
-                let s = invoke(sdk.wasm, &f.name, false, args);
-                let l = invoke(solang.wasm, &f.name, false, args);
-                d.row(&f.name, m.label(), &s, &l);
-            }
+    // A struct argument is also sent in shapes neither side should accept. Both
+    // rejecting is the expected answer; one side accepting is the divergence.
+    if spec::takes_struct(&f.inputs) {
+        for m in spec::ALL_MALFORMED {
+            let args = |h: &Host, addr| spec::build_malformed(h, addr, iface, &f.inputs, m);
+            let s = invoke(sdk, &f.name, false, args);
+            let l = invoke(solang, &f.name, false, args);
+            d.row(&f.name, m.label(), &s, &l);
         }
+    }
 
-        // The first argument that is not a struct, sent as the wrong type. Soroban leaves
-        // type checking to the contract, so this asks whether each side does it.
-        if spec::takes_plain(&f.inputs) {
-            let args = |h: &Host, addr| spec::build_wrong_arg(h, addr, &sdk.interface, &f.inputs);
-            let s = invoke(sdk.wasm, &f.name, false, args);
-            let l = invoke(solang.wasm, &f.name, false, args);
-            d.row(&f.name, "badarg", &s, &l);
-        }
+    // The first argument that is not a struct, sent as the wrong type. Soroban leaves
+    // type checking to the contract, so this asks whether each side does it.
+    if spec::takes_plain(&f.inputs) {
+        let args = |h: &Host, addr| spec::build_wrong_arg(h, addr, iface, &f.inputs);
+        let s = invoke(sdk, &f.name, false, args);
+        let l = invoke(solang, &f.name, false, args);
+        d.row(&f.name, "badarg", &s, &l);
     }
     d
 }
