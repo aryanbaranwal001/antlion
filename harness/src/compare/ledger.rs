@@ -1,10 +1,10 @@
 use serde_json::{Value, json};
 use soroban_env_host::{
-    Env, EnvBase, Host, HostError, Symbol,
-    testutils::{generate_account_id, generate_bytes_array},
+    Host, HostError,
     xdr::{ContractDataDurability, LedgerEntryData, ScAddress, ScSpecTypeDef, ScVal},
 };
 
+use super::call::{Setup, deploy_and_call};
 use crate::wasm::{Contract, spec};
 
 const SIDE: usize = 7;
@@ -174,27 +174,26 @@ fn print_side(side: &str, entries: &Side) {
 }
 
 /// Deploy `wasm`, call `func` once, and return every contract data entry the host holds.
-/// Instance storage lives inside the contract instance entry, so its map is unpacked into
-/// one entry per key.
 fn snapshot(
     wasm: &[u8],
     iface: &spec::Interface,
     func: &str,
     inputs: &[ScSpecTypeDef],
 ) -> Result<Vec<Entry>, HostError> {
-    let host = Host::test_host_with_recording_footprint();
-    let account = generate_account_id(&host);
-    let salt = generate_bytes_array(&host);
-    let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
-    // Grant any authorization the call asks for, so a function guarded by `require_auth`
-    // still reaches its storage writes. Calls that ask for none are unaffected.
-    host.switch_to_recording_auth(false)?;
+    let setup = Setup {
+        cached: false,
+        // Grant any authorization the call asks for, so a function guarded by
+        // `require_auth` still reaches its storage writes. Calls that ask for none are
+        // unaffected.
+        authed: true,
+    };
+    let args = |h: &Host, addr| spec::build_args(h, addr, iface, inputs, spec::Inputs::Small);
+    deploy_and_call(wasm, func, setup, args, |host, _, _| entries(host))
+}
 
-    let args = spec::build_args(&host, contract.to_val(), iface, inputs, spec::Inputs::Small)?;
-    let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
-    let argv = host.vec_new_from_slice(&args)?;
-    host.call(contract, sym, argv)?;
-
+/// Every contract data entry the host holds. Instance storage lives inside the contract
+/// instance entry, so its map is unpacked into one entry per key.
+fn entries(host: &Host) -> Result<Vec<Entry>, HostError> {
     let mut out = Vec::new();
     for (_, entry) in host.get_stored_entries()? {
         let Some((e, _)) = entry else { continue };
