@@ -2,6 +2,7 @@ use std::{fs, path::Path};
 
 use serde_json::{Map, Value, json};
 
+mod call;
 mod cost;
 mod functions;
 mod imports;

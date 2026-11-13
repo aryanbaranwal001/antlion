@@ -1,16 +1,8 @@
 use serde_json::{Value, json};
-use soroban_env_host::{
-    Env, EnvBase, Host, HostError, Symbol,
-    testutils::{generate_account_id, generate_bytes_array},
-    xdr::ScSpecTypeDef,
-};
+use soroban_env_host::{HostError, xdr::ScSpecTypeDef};
 
+use super::call::{Cost, Setup, deploy_and_call};
 use crate::wasm::{Contract, spec};
-
-struct Cost {
-    cpu: u64,
-    mem: u64,
-}
 
 /// One function's measurement, or a function skipped for its argument types.
 enum Item {
@@ -139,38 +131,24 @@ pub fn json(d: &Data) -> Value {
     json!({ "no_spec": d.no_spec, "functions": functions, "skipped": skipped })
 }
 
-/// Deploy `wasm`, call `func` with synthesized arguments, and return what the call alone
-/// consumed.
-///
-/// Arguments are built here rather than passed in, because object handles belong to one
-/// host's object table and each side gets its own host.
+/// What one call of `func` consumed, with `small` arguments and the module cached.
 fn measure(
     wasm: &[u8],
     iface: &spec::Interface,
     func: &str,
     inputs: &[ScSpecTypeDef],
 ) -> Result<Cost, HostError> {
-    let host = Host::test_host_with_recording_footprint();
-    let account = generate_account_id(&host);
-    let salt = generate_bytes_array(&host);
-    let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
-    host.ensure_module_cache_contains_host_storage_contracts()?;
-
-    let args = spec::build_args(&host, contract.to_val(), iface, inputs, spec::Inputs::Small)?;
-
-    let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
-    let argv = host.vec_new_from_slice(&args)?;
-
-    let budget = host.budget_cloned();
-    let base_cpu = budget.get_cpu_insns_consumed()?;
-    let base_mem = budget.get_mem_bytes_consumed()?;
-
-    host.call(contract, sym, argv)?;
-
-    Ok(Cost {
-        cpu: budget.get_cpu_insns_consumed()? - base_cpu,
-        mem: budget.get_mem_bytes_consumed()? - base_mem,
-    })
+    let setup = Setup {
+        cached: true,
+        authed: false,
+    };
+    deploy_and_call(
+        wasm,
+        func,
+        setup,
+        |h, addr| spec::build_args(h, addr, iface, inputs, spec::Inputs::Small),
+        |_, _, cost| Ok(cost),
+    )
 }
 
 /// One metric line.
