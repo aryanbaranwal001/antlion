@@ -216,6 +216,24 @@ mod tests {
     }
 
     #[test]
+    fn jobs() {
+        assert_eq!(compare_of("--compare flow --report size").jobs, None);
+        assert_eq!(
+            compare_of("--compare flow --report size --jobs 2").jobs,
+            Some(2)
+        );
+
+        let c = compare_of("--compare flow --report size --jobs 2 --json");
+        assert_eq!((c.jobs, c.json), (Some(2), true));
+        let c = compare_of("--compare flow --report size --json --jobs 2");
+        assert_eq!((c.jobs, c.json), (Some(2), true));
+
+        assert!(is_usage("--compare flow --report size --jobs 0"));
+        assert!(is_usage("--compare flow --report size --jobs x"));
+        assert!(is_usage("--compare flow --report size --jobs"));
+    }
+
+    #[test]
     fn compare_errors() {
         assert!(is_usage("--compare flow"));
         assert!(is_usage("--compare --report all"));
