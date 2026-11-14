@@ -83,12 +83,12 @@ const SCHEMA_VERSION: u32 = 1;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
-    pool(jobs())?.install(|| all(args))
+    pool(args.jobs.unwrap_or_else(default_jobs))?.install(|| all(args))
 }
 
-/// Threads for the reports that call contracts: 4, or fewer when the machine has fewer
-/// cores. One when the number of cores cannot be read.
-fn jobs() -> usize {
+/// Threads for the reports that call contracts when `--jobs` is not given: 4, or fewer
+/// when the machine has fewer cores. One when the number of cores cannot be read.
+fn default_jobs() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get().min(4))
 }
 

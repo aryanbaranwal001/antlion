@@ -16,6 +16,8 @@ pub struct Compare {
     pub reports: Vec<Report>,
     pub json: bool,
     pub mode: Mode,
+    /// Threads for the reports that call contracts. `None` leaves the choice to `compare`.
+    pub jobs: Option<usize>,
 }
 
 /// How the `opcodes` report is shown.
@@ -47,7 +49,7 @@ pub fn parse(args: &[String]) -> Result<Command> {
 fn compare(args: &[String]) -> Result<Compare> {
     let names: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
     let usage = format!(
-        "[err] usage: --compare <name>... --report {}|all [--json] [--detail|--dump]",
+        "[err] usage: --compare <name>... --report {}|all [--json] [--detail|--dump] [--jobs <n>]",
         names.join("|")
     );
 
@@ -69,13 +71,25 @@ fn compare(args: &[String]) -> Result<Compare> {
         )));
     };
 
-    // Trailing flags, in any order: `--json`, and one of `--detail` or `--dump`.
-    let (mut reports, mut json, mut mode) = (rest, false, None);
+    // Trailing flags, in any order: `--json`, one of `--detail` or `--dump`, and
+    // `--jobs <n>`.
+    let bad_jobs = || Error::usage("--jobs needs a number, 1 or more");
+    let (mut reports, mut json, mut mode, mut jobs) = (rest, false, None, None);
     while let Some((last, elements)) = reports.split_last() {
         match last.as_str() {
             "--json" if !json => json = true,
             "--detail" if mode.is_none() => mode = Some(Mode::Detail),
             "--dump" if mode.is_none() => mode = Some(Mode::Dump),
+            "--jobs" if jobs.is_none() => return Err(bad_jobs()),
+            n if jobs.is_none() && elements.last().is_some_and(|f| f == "--jobs") => {
+                let n: usize = n.parse().map_err(|_| bad_jobs())?;
+                if n == 0 {
+                    return Err(bad_jobs());
+                }
+                jobs = Some(n);
+                reports = &elements[..elements.len() - 1];
+                continue;
+            }
             _ => break,
         }
         reports = elements;
@@ -104,6 +118,7 @@ fn compare(args: &[String]) -> Result<Compare> {
         reports: first_of_each(reports),
         json,
         mode: mode.unwrap_or(Mode::Totals),
+        jobs,
     })
 }
 
