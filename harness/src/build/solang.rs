@@ -17,8 +17,8 @@ pub fn build(dir: &Path, name: &str, out_dir: &str) -> Result<()> {
     }
 
     // solang writes an abi beside the wasm, named after the contract rather than the file.
-    let entries = fs::read_dir(out_dir)
-        .map_err(|_| Error::failed("failed to read the output directory"))?;
+    let entries =
+        fs::read_dir(out_dir).map_err(|_| Error::failed("failed to read the output directory"))?;
     for entry in entries {
         let path = entry
             .map_err(|_| Error::failed("failed to read a directory entry"))?

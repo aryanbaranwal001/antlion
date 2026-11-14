@@ -66,13 +66,16 @@ impl Report {
 
     /// The report with this name.
     pub fn parse(s: &str) -> Result<Report> {
-        Report::ALL.into_iter().find(|r| r.name() == s).ok_or_else(|| {
-            let names: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
-            Error::usage(format!(
-                "unknown report `{s}` — pick from: {}, all",
-                names.join(", ")
-            ))
-        })
+        Report::ALL
+            .into_iter()
+            .find(|r| r.name() == s)
+            .ok_or_else(|| {
+                let names: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
+                Error::usage(format!(
+                    "unknown report `{s}` — pick from: {}, all",
+                    names.join(", ")
+                ))
+            })
     }
 }
 
@@ -99,7 +102,9 @@ fn pool(jobs: usize) -> Result<rayon::ThreadPool> {
         .num_threads(jobs)
         .build()
         .or_else(|e| {
-            eprintln!("[warn] could not start {jobs} threads ({e}), so every call runs on the main thread");
+            eprintln!(
+                "[warn] could not start {jobs} threads ({e}), so every call runs on the main thread"
+            );
             rayon::ThreadPoolBuilder::new()
                 .num_threads(1)
                 .use_current_thread()
@@ -130,7 +135,13 @@ fn all(args: &cli::Compare) -> Result<()> {
         for &r in &args.reports {
             let out = &mut pair;
             match r {
-                Report::Size => emit(r.name(), size::collect(&sdk, &solang), size::text, size::json, out),
+                Report::Size => emit(
+                    r.name(),
+                    size::collect(&sdk, &solang),
+                    size::text,
+                    size::json,
+                    out,
+                ),
                 Report::Sections => emit(
                     r.name(),
                     section::collect(&sdk, &solang),
@@ -183,7 +194,10 @@ fn all(args: &cli::Compare) -> Result<()> {
                         }
                     }
                     Some(m) => {
-                        m.insert(r.name().to_string(), opcodes::json(&opcodes::collect(&sdk, &solang)));
+                        m.insert(
+                            r.name().to_string(),
+                            opcodes::json(&opcodes::collect(&sdk, &solang)),
+                        );
                     }
                 },
                 Report::Functions => emit(
@@ -193,8 +207,13 @@ fn all(args: &cli::Compare) -> Result<()> {
                     functions::json,
                     out,
                 ),
-                Report::Layout => emit(r.name(), layout::collect(&sdk, &solang), layout::text, layout::json, out),
-
+                Report::Layout => emit(
+                    r.name(),
+                    layout::collect(&sdk, &solang),
+                    layout::text,
+                    layout::json,
+                    out,
+                ),
             }
         }
 
@@ -240,7 +259,9 @@ fn load(name: &str) -> Result<(Vec<u8>, Vec<u8>)> {
     let solang_path = format!("out/{name}/solang.wasm");
 
     if !Path::new(&sdk_path).exists() || !Path::new(&solang_path).exists() {
-        return Err(Error::failed(format!("no build for `{name}` in out/{name}/")));
+        return Err(Error::failed(format!(
+            "no build for `{name}` in out/{name}/"
+        )));
     }
 
     Ok((

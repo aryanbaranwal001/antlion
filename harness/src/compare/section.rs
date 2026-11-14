@@ -32,7 +32,11 @@ pub fn text(rows: &[Row]) {
     );
 
     for r in rows {
-        line(&r.name, Some(r.sdk.iter().sum()), Some(r.solang.iter().sum()));
+        line(
+            &r.name,
+            Some(r.sdk.iter().sum()),
+            Some(r.solang.iter().sum()),
+        );
         occurrences(&r.sdk, &r.solang);
     }
     println!();

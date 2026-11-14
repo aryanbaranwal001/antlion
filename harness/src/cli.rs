@@ -208,7 +208,10 @@ mod tests {
 
     #[test]
     fn repeats_are_used_once() {
-        assert_eq!(compare_of("--compare flow flow --report size").names, ["flow"]);
+        assert_eq!(
+            compare_of("--compare flow flow --report size").names,
+            ["flow"]
+        );
         assert_eq!(
             compare_of("--compare flow --report size size").reports,
             [Report::Size]

@@ -34,8 +34,7 @@ pub fn deploy_and_call<T>(
     let host = Host::test_host_with_recording_footprint();
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
-    let contract =
-        host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
+    let contract = host.register_test_contract_wasm_from_source_account(wasm, account, salt)?;
     if setup.cached {
         host.ensure_module_cache_contains_host_storage_contracts()?;
     }

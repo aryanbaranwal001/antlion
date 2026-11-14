@@ -184,17 +184,23 @@ fn notes(sdk: &Layout, solang: &Layout) -> Vec<String> {
         } else {
             ("solang", "sdk")
         };
-        out.push(format!("{yes} memory can grow past its minimum, {no} memory cannot"));
+        out.push(format!(
+            "{yes} memory can grow past its minimum, {no} memory cannot"
+        ));
     }
 
     if sdk.table.is_some() != solang.table.is_some() {
         let side = if sdk.table.is_some() { "solang" } else { "sdk" };
-        out.push(format!("{side} declares no table, so it makes no indirect calls"));
+        out.push(format!(
+            "{side} declares no table, so it makes no indirect calls"
+        ));
     }
 
     for (name, l) in [("sdk", sdk), ("solang", solang)] {
         if l.memory_imported {
-            out.push(format!("{name} imports its memory rather than defining one"));
+            out.push(format!(
+                "{name} imports its memory rather than defining one"
+            ));
         }
         if l.table_imported {
             out.push(format!("{name} imports its table rather than defining one"));

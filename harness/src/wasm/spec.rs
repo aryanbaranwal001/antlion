@@ -409,9 +409,15 @@ fn arg_val(
         (St::Bytes, Bound) => host.bytes_new_from_slice(&[0xff])?.to_val(),
         (St::Bytes, Neg) => host.bytes_new_from_slice(&[])?.to_val(),
 
-        (St::BytesN(n), Neg) => host.bytes_new_from_slice(&vec![0u8; n.n as usize])?.to_val(),
-        (St::BytesN(n), Small) => host.bytes_new_from_slice(&vec![1u8; n.n as usize])?.to_val(),
-        (St::BytesN(n), _) => host.bytes_new_from_slice(&vec![0xff; n.n as usize])?.to_val(),
+        (St::BytesN(n), Neg) => host
+            .bytes_new_from_slice(&vec![0u8; n.n as usize])?
+            .to_val(),
+        (St::BytesN(n), Small) => host
+            .bytes_new_from_slice(&vec![1u8; n.n as usize])?
+            .to_val(),
+        (St::BytesN(n), _) => host
+            .bytes_new_from_slice(&vec![0xff; n.n as usize])?
+            .to_val(),
 
         (St::String, Small) => host.string_new_from_slice(b"antlion")?.to_val(),
         (St::String, Large) => host.string_new_from_slice(&[0x61; 40])?.to_val(),
@@ -419,7 +425,9 @@ fn arg_val(
         (St::String, Neg) => host.string_new_from_slice(b"")?.to_val(),
 
         (St::Symbol, Small) => host.symbol_new_from_slice(b"sym")?.to_val(),
-        (St::Symbol, Large) => host.symbol_new_from_slice(b"abcdefghijklmnopqrstuvwxyz012345")?.to_val(),
+        (St::Symbol, Large) => host
+            .symbol_new_from_slice(b"abcdefghijklmnopqrstuvwxyz012345")?
+            .to_val(),
         (St::Symbol, Bound) => host.symbol_new_from_slice(b"a")?.to_val(),
         (St::Symbol, Neg) => host.symbol_new_from_slice(b"")?.to_val(),
 

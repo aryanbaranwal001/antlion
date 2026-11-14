@@ -55,22 +55,16 @@ impl<'a> Contract<'a> {
                             TypeRef::Func(_) => host.push(
                                 names::host_fn_name(im.module, im.name)
                                     .map(str::to_string)
-                                    .unwrap_or_else(|| {
-                                        format!("{}.{}", im.module, im.name)
-                                    }),
+                                    .unwrap_or_else(|| format!("{}.{}", im.module, im.name)),
                             ),
                             TypeRef::Table(t) => {
-                                layout.table = Some((
-                                    reftype(t.element_type),
-                                    limits(t.initial, t.maximum),
-                                ));
+                                layout.table =
+                                    Some((reftype(t.element_type), limits(t.initial, t.maximum)));
                                 layout.table_imported = true;
                             }
                             TypeRef::Memory(m) => {
-                                layout.memory = Some(limits(
-                                    m.initial as u32,
-                                    m.maximum.map(|v| v as u32),
-                                ));
+                                layout.memory =
+                                    Some(limits(m.initial as u32, m.maximum.map(|v| v as u32)));
                                 layout.memory_imported = true;
                             }
                             TypeRef::Global(_) | TypeRef::Tag(_) => layout.globals += 1,
@@ -83,10 +77,8 @@ impl<'a> Contract<'a> {
                     if let Some(t) = r.into_iter().next() {
                         let t = t.map_err(bad)?.ty;
                         if !layout.table_imported {
-                            layout.table = Some((
-                                reftype(t.element_type),
-                                limits(t.initial, t.maximum),
-                            ));
+                            layout.table =
+                                Some((reftype(t.element_type), limits(t.initial, t.maximum)));
                         }
                     }
                 }
@@ -95,10 +87,8 @@ impl<'a> Contract<'a> {
                     if let Some(m) = r.into_iter().next() {
                         let m = m.map_err(bad)?;
                         if !layout.memory_imported {
-                            layout.memory = Some(limits(
-                                m.initial as u32,
-                                m.maximum.map(|v| v as u32),
-                            ));
+                            layout.memory =
+                                Some(limits(m.initial as u32, m.maximum.map(|v| v as u32)));
                         }
                     }
                 }
@@ -118,9 +108,7 @@ impl<'a> Contract<'a> {
                 }
                 Payload::StartSection { range, .. } => section("start", range.len()),
                 Payload::ElementSection(r) => section("element", r.range().len()),
-                Payload::DataCountSection { range, .. } => {
-                    section("data_count", range.len())
-                }
+                Payload::DataCountSection { range, .. } => section("data_count", range.len()),
                 Payload::DataSection(r) => {
                     section("data", r.range().len());
                     layout.data_segments = r.count();
