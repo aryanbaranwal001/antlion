@@ -10,8 +10,8 @@ enum Item {
     Measured {
         name: String,
         sig: String,
-        sdk: Result<Cost, HostError>,
-        solang: Result<Cost, HostError>,
+        sdk: Result<Cost, String>,
+        solang: Result<Cost, String>,
     },
 }
 
@@ -35,11 +35,15 @@ pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
             if !spec::args_supported(&sdk.interface, &f.inputs) {
                 return Item::Unsupported(spec::sig(f));
             }
+            // Errors are kept as text, so a result can come back from another thread.
+            let run = |wasm| {
+                measure(wasm, &sdk.interface, &f.name, &f.inputs).map_err(|e| format!("{e:?}"))
+            };
             Item::Measured {
                 name: f.name.clone(),
                 sig: spec::sig(f),
-                sdk: measure(sdk.wasm, &sdk.interface, &f.name, &f.inputs),
-                solang: measure(solang.wasm, &sdk.interface, &f.name, &f.inputs),
+                sdk: run(sdk.wasm),
+                solang: run(solang.wasm),
             }
         })
         .collect();
@@ -74,10 +78,10 @@ pub fn text(name: &str, d: &Data) {
         println!("{sig}\n");
 
         if let Err(e) = s {
-            println!("[err] sdk invoke failed: {e:?}");
+            println!("[err] sdk invoke failed: {e}");
         }
         if let Err(e) = l {
-            println!("[err] solang invoke failed: {e:?}");
+            println!("[err] solang invoke failed: {e}");
         }
 
         if let (Ok(s), Ok(l)) = (s, l) {
@@ -95,9 +99,9 @@ pub fn text(name: &str, d: &Data) {
 
 /// A failed call is `{"err": ...}` and has no `diff`, as in the text.
 pub fn json(d: &Data) -> Value {
-    let side = |c: &Result<Cost, HostError>| match c {
+    let side = |c: &Result<Cost, String>| match c {
         Ok(c) => json!({ "cpu": c.cpu, "mem": c.mem }),
-        Err(e) => json!({ "err": super::one_line(&format!("{e:?}")) }),
+        Err(e) => json!({ "err": super::one_line(e) }),
     };
 
     let mut functions = Vec::new();
