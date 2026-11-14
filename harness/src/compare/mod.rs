@@ -83,6 +83,33 @@ const SCHEMA_VERSION: u32 = 1;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
+    pool(jobs())?.install(|| all(args))
+}
+
+/// Threads for the reports that call contracts: 4, or fewer when the machine has fewer
+/// cores. One when the number of cores cannot be read.
+fn jobs() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get().min(4))
+}
+
+/// A pool of `jobs` threads. If they cannot be started, for example where the system
+/// allows no more threads, the pool runs on this thread alone: slower, same results.
+fn pool(jobs: usize) -> Result<rayon::ThreadPool> {
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(jobs)
+        .build()
+        .or_else(|e| {
+            eprintln!("[warn] could not start {jobs} threads ({e}), so every call runs on the main thread");
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .use_current_thread()
+                .build()
+        })
+        .map_err(|e| Error::failed(format!("failed to start threads: {e}")))
+}
+
+/// Every pair, inside the pool.
+fn all(args: &cli::Compare) -> Result<()> {
     let json = args.json;
     let mut pairs = Vec::new();
     let mut no_json = Vec::new();

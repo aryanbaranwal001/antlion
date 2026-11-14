@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use serde_json::{Value, json};
 use soroban_env_host::{Host, HostError, TryFromVal, Val, xdr::ScVal};
 
@@ -72,7 +73,11 @@ pub struct Data {
 /// malformed struct and `badarg` rows where they apply.
 pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
     let (sw, lw, iface) = (sdk.wasm, solang.wasm, &sdk.interface);
-    let parts: Vec<Data> = iface.funcs.iter().map(|f| one(sw, lw, iface, f)).collect();
+    let parts: Vec<Data> = iface
+        .funcs
+        .par_iter()
+        .map(|f| one(sw, lw, iface, f))
+        .collect();
 
     let mut d = Data {
         no_spec: iface.funcs.is_empty(),

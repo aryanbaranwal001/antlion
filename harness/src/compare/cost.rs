@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use serde_json::{Value, json};
 use soroban_env_host::{HostError, xdr::ScSpecTypeDef};
 
@@ -27,29 +28,27 @@ pub struct Data {
 /// every live contract parsed (CAP-0065, protocol 23). So a call pays for instantiating the
 /// module but not for parsing it, which is charged once at upload instead.
 pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
-    let items = sdk
-        .interface
+    let (sw, lw, iface) = (sdk.wasm, solang.wasm, &sdk.interface);
+    let items = iface
         .funcs
-        .iter()
+        .par_iter()
         .map(|f| {
-            if !spec::args_supported(&sdk.interface, &f.inputs) {
+            if !spec::args_supported(iface, &f.inputs) {
                 return Item::Unsupported(spec::sig(f));
             }
             // Errors are kept as text, so a result can come back from another thread.
-            let run = |wasm| {
-                measure(wasm, &sdk.interface, &f.name, &f.inputs).map_err(|e| format!("{e:?}"))
-            };
+            let run = |wasm| measure(wasm, iface, &f.name, &f.inputs).map_err(|e| format!("{e:?}"));
             Item::Measured {
                 name: f.name.clone(),
                 sig: spec::sig(f),
-                sdk: run(sdk.wasm),
-                solang: run(solang.wasm),
+                sdk: run(sw),
+                solang: run(lw),
             }
         })
         .collect();
 
     Data {
-        no_spec: sdk.interface.funcs.is_empty(),
+        no_spec: iface.funcs.is_empty(),
         items,
     }
 }

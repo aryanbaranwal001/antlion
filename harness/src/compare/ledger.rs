@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use serde_json::{Value, json};
 use soroban_env_host::{
     Host, HostError,
@@ -47,20 +48,20 @@ pub struct Data {
 /// so the entries shown are what that one call wrote, plus anything the deploy itself
 /// wrote.
 pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
-    let items = sdk
-        .interface
+    let (sw, lw, iface) = (sdk.wasm, solang.wasm, &sdk.interface);
+    let items = iface
         .funcs
-        .iter()
+        .par_iter()
         .map(|f| {
-            if !spec::args_supported(&sdk.interface, &f.inputs) {
+            if !spec::args_supported(iface, &f.inputs) {
                 return Item::Unsupported(spec::sig(f));
             }
 
             let side = |wasm| {
-                snapshot(wasm, &sdk.interface, &f.name, &f.inputs)
+                snapshot(wasm, iface, &f.name, &f.inputs)
                     .map_err(|e| super::one_line(&format!("{e:?}")))
             };
-            let (s, l) = (side(sdk.wasm), side(solang.wasm));
+            let (s, l) = (side(sw), side(lw));
 
             let verdict = match (&s, &l) {
                 (Ok(a), Ok(b)) if a == b => "same",
@@ -78,7 +79,7 @@ pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
         .collect();
 
     Data {
-        no_spec: sdk.interface.funcs.is_empty(),
+        no_spec: iface.funcs.is_empty(),
         items,
     }
 }
