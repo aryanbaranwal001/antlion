@@ -15,7 +15,11 @@ pub fn build(dir: &Path, name: &str, out_dir: &Path) -> Result<PathBuf> {
         .arg(out_dir)
         .arg(&src)
         .status()
-        .map_err(|_| Error::failed("failed to run solang"))?;
+        .map_err(|e| {
+            Error::failed(format!(
+                "`solang` could not be started ({e}). The binary on PATH must be named exactly `solang`."
+            ))
+        })?;
 
     if !status.success() {
         return Err(Error::failed("solang compile failed"));

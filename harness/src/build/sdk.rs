@@ -27,7 +27,11 @@ pub fn build(dir: &Path, out_dir: &Path) -> Result<PathBuf> {
         .arg("--out-dir")
         .arg(out_dir)
         .status()
-        .map_err(|_| Error::failed("failed to run stellar"))?;
+        .map_err(|e| {
+            Error::failed(format!(
+                "`stellar` could not be started ({e}). Install stellar-cli and put it on PATH."
+            ))
+        })?;
 
     if !status.success() {
         return Err(Error::failed("stellar contract build failed"));
