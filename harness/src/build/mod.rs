@@ -18,12 +18,38 @@ pub fn name_of(arg: &str) -> String {
         .to_string()
 }
 
+/// Build every pair in `paths`, in order. A pair that fails is reported and skipped, so the
+/// others still build.
+pub fn all(paths: &[String]) -> Result<()> {
+    let mut failed = Vec::new();
+    for path in paths {
+        match pair(path) {
+            Ok(()) => {}
+            Err(Error::Failed(msg)) => {
+                eprintln!("[err] {path}: {msg}");
+                failed.push(path.as_str());
+            }
+            Err(e) => return Err(e),
+        }
+    }
+
+    if !failed.is_empty() {
+        return Err(Error::failed(format!(
+            "{} of {} pairs failed: {}",
+            failed.len(),
+            paths.len(),
+            failed.join(", ")
+        )));
+    }
+    Ok(())
+}
+
 /// Build both sides of the pair at `path` into `out/<name>/`.
 ///
 /// Both compilers write into a temporary directory first. The two files move into place
 /// only when both builds succeed, so `out/<name>/` never holds one new file next to one old
 /// file, and a failed build of a new pair leaves no directory behind.
-pub fn pair(path: &str) -> Result<()> {
+fn pair(path: &str) -> Result<()> {
     let name = name_of(path);
     let tmp = PathBuf::from(format!("out/.{name}.build"));
 

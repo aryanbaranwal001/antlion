@@ -5,7 +5,8 @@ use crate::error::{Error, Result};
 pub enum Command {
     Help,
     Version,
-    Build(String),
+    /// One or more pair paths, in the order given.
+    Build(Vec<String>),
     Compare(Compare),
 }
 
@@ -30,16 +31,17 @@ pub enum Mode {
 
 /// Read the arguments, without the program name.
 pub fn parse(args: &[String]) -> Result<Command> {
-    let usage = "usage: --build <contract> | --compare <contract>... --report <report>... | --help | --version";
+    let usage = "usage: --build <contract>... | --compare <contract>... --report <report>... | --help | --version";
     let (cmd, rest) = args.split_first().ok_or_else(|| Error::usage(usage))?;
 
     match cmd.as_str() {
         "--help" => Ok(Command::Help),
         "--version" => Ok(Command::Version),
-        "--build" => {
-            let arg = rest.first().ok_or_else(|| Error::usage(usage))?;
-            Ok(Command::Build(arg.clone()))
+        "--build" if rest.is_empty() => Err(Error::usage(usage)),
+        "--build" if rest.iter().any(|a| a.starts_with("--")) => {
+            Err(Error::usage("--build takes paths only"))
         }
+        "--build" => Ok(Command::Build(rest.to_vec())),
         "--compare" => compare(rest).map(Command::Compare),
         _ => Err(Error::usage(usage)),
     }
@@ -167,9 +169,14 @@ mod tests {
     fn build() {
         assert!(matches!(
             parse_str("--build contracts/flow"),
-            Ok(Command::Build(p)) if p == "contracts/flow"
+            Ok(Command::Build(p)) if p == ["contracts/flow"]
+        ));
+        assert!(matches!(
+            parse_str("--build a b"),
+            Ok(Command::Build(p)) if p == ["a", "b"]
         ));
         assert!(is_usage("--build"));
+        assert!(is_usage("--build a --json"));
     }
 
     #[test]

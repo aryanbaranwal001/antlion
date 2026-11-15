@@ -27,7 +27,7 @@ fn run() -> Result<()> {
     match cli::parse(&args)? {
         Command::Help => print!("{}", include_str!("../../help.md")),
         Command::Version => println!("{VERSION}"),
-        Command::Build(arg) => build::pair(&arg)?,
+        Command::Build(paths) => build::all(&paths)?,
         Command::Compare(c) => compare::run(&c)?,
     }
     Ok(())
