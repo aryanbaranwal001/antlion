@@ -82,7 +82,7 @@ impl Report {
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
@@ -118,10 +118,18 @@ fn all(args: &cli::Compare) -> Result<()> {
     let json = args.json;
     let mut pairs = Vec::new();
     let mut no_json = Vec::new();
+    // A pair that cannot be compared is reported and skipped, so the others still run.
+    let mut failed: Vec<(&str, String)> = Vec::new();
 
     for name in &args.names {
-        if let Some(p) = pair(name, args, &mut no_json)? {
-            pairs.push(p);
+        match pair(name, args, &mut no_json) {
+            Ok(Some(p)) => pairs.push(p),
+            Ok(None) => {}
+            Err(Error::Failed(msg)) => {
+                eprintln!("[err] {name}: {msg}");
+                failed.push((name, msg));
+            }
+            Err(e) => return Err(e),
         }
     }
 
@@ -131,11 +139,25 @@ fn all(args: &cli::Compare) -> Result<()> {
             "antlion": crate::VERSION.trim_start_matches("antlion version "),
             "pairs": pairs,
             "no_json": no_json,
+            "failed": failed
+                .iter()
+                .map(|(name, error)| json!({ "name": name, "error": error }))
+                .collect::<Vec<_>>(),
         });
         println!(
             "{}",
             serde_json::to_string_pretty(&doc).expect("[err] failed to write the JSON")
         );
+    }
+
+    if !failed.is_empty() {
+        let names: Vec<&str> = failed.iter().map(|(name, _)| *name).collect();
+        return Err(Error::failed(format!(
+            "{} of {} pairs failed: {}",
+            failed.len(),
+            args.names.len(),
+            names.join(", ")
+        )));
     }
     Ok(())
 }
