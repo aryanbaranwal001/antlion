@@ -120,105 +120,8 @@ fn all(args: &cli::Compare) -> Result<()> {
     let mut no_json = Vec::new();
 
     for name in &args.names {
-        let (sdk_wasm, solang_wasm) = load(name)?;
-        let sdk = Contract::load(&sdk_wasm)
-            .map_err(|e| Error::failed(format!("{name} sdk.wasm: {e}")))?;
-        let solang = Contract::load(&solang_wasm)
-            .map_err(|e| Error::failed(format!("{name} solang.wasm: {e}")))?;
-
-        // In JSON mode each report adds its key here; in text mode it prints.
-        let mut pair = json.then(|| Map::from_iter([("name".to_string(), json!(name))]));
-        if !json {
-            title(name);
-        }
-
-        for &r in &args.reports {
-            let out = &mut pair;
-            match r {
-                Report::Size => emit(
-                    r.name(),
-                    size::collect(&sdk, &solang),
-                    size::text,
-                    size::json,
-                    out,
-                ),
-                Report::Sections => emit(
-                    r.name(),
-                    section::collect(&sdk, &solang),
-                    |d| section::text(d),
-                    |d| section::json(d),
-                    out,
-                ),
-                Report::Imports => emit(
-                    r.name(),
-                    imports::collect(&sdk, &solang),
-                    imports::text,
-                    imports::json,
-                    out,
-                ),
-                Report::Interface => emit(
-                    r.name(),
-                    interface::collect(&sdk, &solang),
-                    |d| interface::text(d),
-                    |d| interface::json(d),
-                    out,
-                ),
-                Report::Returns => emit(
-                    r.name(),
-                    returns::collect(&sdk, &solang),
-                    |d| returns::text(name, d),
-                    returns::json,
-                    out,
-                ),
-                Report::Cost => emit(
-                    r.name(),
-                    cost::collect(&sdk, &solang),
-                    |d| cost::text(name, d),
-                    cost::json,
-                    out,
-                ),
-                Report::Ledger => emit(
-                    r.name(),
-                    ledger::collect(&sdk, &solang),
-                    |d| ledger::text(name, d),
-                    ledger::json,
-                    out,
-                ),
-                Report::Opcodes => match out {
-                    None => opcodes::text(&sdk, &solang, args.mode),
-                    // A disassembly is not numbers, so it has no JSON form.
-                    Some(_) if args.mode == Mode::Dump => {
-                        let note = "opcodes --dump".to_string();
-                        if !no_json.contains(&note) {
-                            no_json.push(note);
-                        }
-                    }
-                    Some(m) => {
-                        m.insert(
-                            r.name().to_string(),
-                            opcodes::json(&opcodes::collect(&sdk, &solang)),
-                        );
-                    }
-                },
-                Report::Functions => emit(
-                    r.name(),
-                    functions::collect(&sdk, &solang),
-                    functions::text,
-                    functions::json,
-                    out,
-                ),
-                Report::Layout => emit(
-                    r.name(),
-                    layout::collect(&sdk, &solang),
-                    layout::text,
-                    layout::json,
-                    out,
-                ),
-            }
-        }
-
-        if let Some(pair) = pair {
-            pairs.push(Value::Object(pair));
+        if let Some(p) = pair(name, args, &mut no_json)? {
+            pairs.push(p);
         }
     }
 
@@ -235,6 +138,111 @@ fn all(args: &cli::Compare) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Compare one pair. In JSON mode the result is the pair's object; in text mode the
+/// reports are printed and the result is `None`.
+fn pair(name: &str, args: &cli::Compare, no_json: &mut Vec<String>) -> Result<Option<Value>> {
+    let (sdk_wasm, solang_wasm) = load(name)?;
+    let sdk =
+        Contract::load(&sdk_wasm).map_err(|e| Error::failed(format!("{name} sdk.wasm: {e}")))?;
+    let solang = Contract::load(&solang_wasm)
+        .map_err(|e| Error::failed(format!("{name} solang.wasm: {e}")))?;
+
+    // In JSON mode each report adds its key here; in text mode it prints.
+    let mut pair = args
+        .json
+        .then(|| Map::from_iter([("name".to_string(), json!(name))]));
+    if !args.json {
+        title(name);
+    }
+
+    for &r in &args.reports {
+        let out = &mut pair;
+        match r {
+            Report::Size => emit(
+                r.name(),
+                size::collect(&sdk, &solang),
+                size::text,
+                size::json,
+                out,
+            ),
+            Report::Sections => emit(
+                r.name(),
+                section::collect(&sdk, &solang),
+                |d| section::text(d),
+                |d| section::json(d),
+                out,
+            ),
+            Report::Imports => emit(
+                r.name(),
+                imports::collect(&sdk, &solang),
+                imports::text,
+                imports::json,
+                out,
+            ),
+            Report::Interface => emit(
+                r.name(),
+                interface::collect(&sdk, &solang),
+                |d| interface::text(d),
+                |d| interface::json(d),
+                out,
+            ),
+            Report::Returns => emit(
+                r.name(),
+                returns::collect(&sdk, &solang),
+                |d| returns::text(name, d),
+                returns::json,
+                out,
+            ),
+            Report::Cost => emit(
+                r.name(),
+                cost::collect(&sdk, &solang),
+                |d| cost::text(name, d),
+                cost::json,
+                out,
+            ),
+            Report::Ledger => emit(
+                r.name(),
+                ledger::collect(&sdk, &solang),
+                |d| ledger::text(name, d),
+                ledger::json,
+                out,
+            ),
+            Report::Opcodes => match out {
+                None => opcodes::text(&sdk, &solang, args.mode),
+                // A disassembly is not numbers, so it has no JSON form.
+                Some(_) if args.mode == Mode::Dump => {
+                    let note = "opcodes --dump".to_string();
+                    if !no_json.contains(&note) {
+                        no_json.push(note);
+                    }
+                }
+                Some(m) => {
+                    m.insert(
+                        r.name().to_string(),
+                        opcodes::json(&opcodes::collect(&sdk, &solang)),
+                    );
+                }
+            },
+            Report::Functions => emit(
+                r.name(),
+                functions::collect(&sdk, &solang),
+                functions::text,
+                functions::json,
+                out,
+            ),
+            Report::Layout => emit(
+                r.name(),
+                layout::collect(&sdk, &solang),
+                layout::text,
+                layout::json,
+                out,
+            ),
+        }
+    }
+
+    Ok(pair.map(Value::Object))
 }
 
 /// Render one report's data: as text, or as JSON under its name in `pair`.
