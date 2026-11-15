@@ -18,31 +18,59 @@ pub fn name_of(arg: &str) -> String {
         .to_string()
 }
 
-/// Rename whatever wasm a compiler just dropped in `out_dir` to `dest`.
+/// Build both sides of the pair at `path` into `out/<name>/`.
 ///
-/// Both compilers name their output after the crate or the solidity contract rather than
-/// after the directory, and neither has to match. Taking the one new file avoids having
-/// to predict the name.
-pub fn take_wasm(out_dir: &str, dest: &str) -> Result<()> {
-    let found: Vec<PathBuf> = fs::read_dir(out_dir)
+/// Both compilers write into a temporary directory first. The two files move into place
+/// only when both builds succeed, so `out/<name>/` never holds one new file next to one old
+/// file, and a failed build of a new pair leaves no directory behind.
+pub fn pair(path: &str) -> Result<()> {
+    let name = name_of(path);
+    let tmp = PathBuf::from(format!("out/.{name}.build"));
+
+    let _ = fs::remove_dir_all(&tmp);
+    let built = build_into(Path::new(path), &name, &tmp);
+    let _ = fs::remove_dir_all(&tmp);
+    built
+}
+
+/// Both builds into `tmp`, then both files into `out/<name>/`.
+fn build_into(dir: &Path, name: &str, tmp: &Path) -> Result<()> {
+    let mkdir = |d: &Path| {
+        fs::create_dir_all(d).map_err(|_| Error::failed("failed to create the output directory"))
+    };
+    let (sdk_dir, solang_dir) = (tmp.join("sdk"), tmp.join("solang"));
+    mkdir(&sdk_dir)?;
+    mkdir(&solang_dir)?;
+
+    let sdk = sdk::build(dir, &sdk_dir)?;
+    let solang = solang::build(dir, name, &solang_dir)?;
+
+    let out = PathBuf::from(format!("out/{name}"));
+    mkdir(&out)?;
+    let rename = |from: &Path, to: &str| {
+        fs::rename(from, out.join(to)).map_err(|_| Error::failed("failed to rename wasm"))
+    };
+    rename(&sdk, "sdk.wasm")?;
+    rename(&solang, "solang.wasm")
+}
+
+/// The one wasm file a compiler wrote into `dir`. Both compilers name their output after
+/// the crate or the solidity contract, so the name cannot be predicted.
+fn only_wasm(dir: &Path) -> Result<PathBuf> {
+    let found: Vec<PathBuf> = fs::read_dir(dir)
         .map_err(|_| Error::failed("failed to read the output directory"))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "wasm"))
-        .filter(|p| {
-            let n = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            n != "sdk.wasm" && n != "solang.wasm"
-        })
         .collect();
 
-    let [built] = found.as_slice() else {
-        return Err(Error::failed(format!(
-            "expected one new wasm in {out_dir}, found {}",
+    match <[PathBuf; 1]>::try_from(found) {
+        Ok([built]) => Ok(built),
+        Err(found) => Err(Error::failed(format!(
+            "expected one wasm in {}, found {}",
+            dir.display(),
             found.len()
-        )));
-    };
-
-    fs::rename(built, format!("{out_dir}/{dest}"))
-        .map_err(|_| Error::failed("failed to rename wasm"))
+        ))),
+    }
 }
 
 /// The solidity source for the pair at `dir`, which is named after the directory:

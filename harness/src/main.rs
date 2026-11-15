@@ -1,4 +1,4 @@
-use std::{env, fs};
+use std::env;
 
 use cli::Command;
 use error::{Error, Result};
@@ -27,16 +27,7 @@ fn run() -> Result<()> {
     match cli::parse(&args)? {
         Command::Help => print!("{}", include_str!("../../help.md")),
         Command::Version => println!("{VERSION}"),
-        Command::Build(arg) => {
-            let dir = std::path::PathBuf::from(&arg);
-            let name = build::name_of(&arg);
-            let out_dir = format!("out/{name}");
-            fs::create_dir_all(&out_dir)
-                .map_err(|_| Error::failed("failed to create the output directory"))?;
-
-            build::sdk::build(&dir, &out_dir)?;
-            build::solang::build(&dir, &name, &out_dir)?;
-        }
+        Command::Build(arg) => build::pair(&arg)?,
         Command::Compare(c) => compare::run(&c)?,
     }
     Ok(())
