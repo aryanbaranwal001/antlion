@@ -77,6 +77,11 @@ antlion --version
 `--help` prints a short reference of every command, option and report. `--version` prints
 the version you have.
 
+antlion exits with 0 on success, 1 when something failed, such as a missing build or a
+failed compile, and 2 for a wrong command. An error is one line on stderr that starts
+with `[err]`. A difference between the two builds is a result, not a failure, so it exits
+with 0.
+
 ## Reading the output
 
 Every report shows the Rust build as `sdk` and the Solidity build as `solang`, side by

@@ -95,3 +95,5 @@ NOTES
     `no_json`.
     returns prints both values in full when they differ, and both errors in full
     when both sides fail with different errors.
+    Exit status: 0 on success, 1 when something failed, 2 for a wrong command.
+    A difference between the two builds is a result, not a failure, and exits 0.
