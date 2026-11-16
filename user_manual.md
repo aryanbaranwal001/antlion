@@ -58,7 +58,9 @@ Compares the two builds of a pair. It takes the pair's **name**, not its path, a
 `out/<name>/`, so build the pair first.
 
 `--report` is required. Give one or more report names, or `all` for every report. You can
-also give several pairs at once. Pairs and reports run in the order you write them.
+also give several pairs at once. Pairs and reports run in the order you write them. If a
+pair cannot be compared, for example because it has no build, the others still run, and
+antlion exits with 1 at the end.
 
 ```
 antlion --compare scalar_id --report all
@@ -115,7 +117,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -123,7 +125,8 @@ CI. The numbers are the same as in the text reports.
       "size": { "sdk": 2845, "solang": 3734, "diff": -889 }
     }
   ],
-  "no_json": []
+  "no_json": [],
+  "failed": []
 }
 ```
 
@@ -140,6 +143,8 @@ CI. The numbers are the same as in the text reports.
   build.
 - `no_json` names any report asked for that has no JSON form. Only `opcodes` with `--dump`
   has none; it is left out of every pair.
+- `failed` lists each pair that could not be compared, with its `name` and the `error`.
+  Such a pair is not in `pairs`, and the exit status is 1.
 
 With `--json`, `--detail` changes nothing: the `opcodes` JSON always lists every opcode.
 
