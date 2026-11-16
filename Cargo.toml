@@ -37,3 +37,24 @@ debug-assertions = false
 panic = "abort"
 codegen-units = 1
 lto = true
+
+# antlion and the Soroban host run on this machine, so they are built for speed. None of
+# these crates is part of a contract built for wasm32v1-none, so the contracts keep the
+# profile above and their size does not change.
+[profile.release.package.harness]
+opt-level = 3
+
+[profile.release.package.soroban-env-host]
+opt-level = 3
+
+[profile.release.package.soroban-wasmi]
+opt-level = 3
+
+[profile.release.package.wasmi_core]
+opt-level = 3
+
+[profile.release.package.wasmi_arena]
+opt-level = 3
+
+[profile.release.package.wasmparser-nostd]
+opt-level = 3
