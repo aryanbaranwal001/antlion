@@ -26,11 +26,15 @@ a contract pair, see the [README](README.md).
 ### Build
 
 ```
-antlion --build <path to pair>
+antlion --build <path to pair>...
 ```
 
 Builds both sides of a pair: the Rust side with `stellar contract build` and the Solidity
 side with `solang compile --target soroban`.
+
+Give one or more pairs. Each pair is built on its own, and a pair is written to `out/`
+only when both of its builds succeed. If one pair fails, the others still build, and
+antlion exits with 1 at the end.
 
 The path is relative to the directory you run the command from, unless it is absolute. A
 bare `flow` means `./flow`; antlion does not look anywhere else for it.

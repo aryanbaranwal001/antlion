@@ -3,19 +3,19 @@ the Rust soroban-sdk, and Solidity through Solang.
 
 USAGE
 
-    antlion --build <contract>
+    antlion --build <contract>...
     antlion --compare <name>... --report <report>... [--json] [--detail | --dump] [--jobs <n>]
     antlion --help
     antlion --version
 
 COMMANDS
 
-    --build <contract>    compile <contract>/{sdk,solang} into out/<name>/
+    --build <contract>... compile each <contract>/{sdk,solang} into out/<name>/
     --compare <name>...   diff both builds of each contract, in the order given
     --help                print this help
     --version             print the version
 
-    --build takes a path to the pair directory, relative to the working directory
+    --build takes a path to each pair directory, relative to the working directory
     unless absolute. There is no fallback: a bare `flow` means ./flow. <name> is
     the last component of that path, and names the output directory.
 
@@ -82,6 +82,7 @@ EXAMPLES
 
     antlion --build contracts/scalar_id
     antlion --build ../elsewhere/pairs/mypair
+    antlion --build contracts/scalar_id contracts/flow
     antlion --compare scalar_id --report all
     antlion --compare scalar_id scalar_math --report size returns
     antlion --compare flow --report opcodes --dump
