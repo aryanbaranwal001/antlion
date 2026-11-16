@@ -309,6 +309,18 @@ fn signed(d: i64) -> String {
     }
 }
 
+/// The three cells of a row: each side, then `sdk` minus `solang`. A missing side is `—`,
+/// and so is the difference.
+fn cells(sdk: Option<usize>, solang: Option<usize>) -> (String, String, String) {
+    let dash = || "—".to_string();
+    match (sdk, solang) {
+        (Some(s), Some(l)) => (s.to_string(), l.to_string(), signed(s as i64 - l as i64)),
+        (Some(s), None) => (s.to_string(), dash(), dash()),
+        (None, Some(l)) => (dash(), l.to_string(), dash()),
+        (None, None) => (dash(), dash(), dash()),
+    }
+}
+
 /// `text` on one line, every run of whitespace a single space.
 fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")

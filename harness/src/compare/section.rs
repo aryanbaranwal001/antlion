@@ -127,15 +127,9 @@ fn sizes_of<'a>(secs: &'a [(String, Vec<usize>)], name: &str) -> &'a [usize] {
 
 /// One table line. A side without that occurrence prints `—`.
 fn line(label: &str, sdk: Option<usize>, solang: Option<usize>) {
-    let (a, b, diff) = match (sdk, solang) {
-        (Some(a), Some(b)) => (
-            a.to_string(),
-            b.to_string(),
-            super::signed(a as i64 - b as i64),
-        ),
-        (Some(a), None) => (a.to_string(), "—".to_string(), "—".to_string()),
-        (None, Some(b)) => ("—".to_string(), b.to_string(), "—".to_string()),
-        (None, None) => return,
-    };
+    if sdk.is_none() && solang.is_none() {
+        return;
+    }
+    let (a, b, diff) = super::cells(sdk, solang);
     println!("{label:<24} {a:>7} {b:>7} {diff:>7}");
 }

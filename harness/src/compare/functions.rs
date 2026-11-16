@@ -210,25 +210,14 @@ fn header() {
 
 /// One line; a side missing the function prints `—`.
 fn row(name: &str, sdk: Option<&Metrics>, solang: Option<&Metrics>) {
-    let pair = |s: Option<usize>, l: Option<usize>| match (s, l) {
-        (Some(s), Some(l)) => (
-            s.to_string(),
-            l.to_string(),
-            super::signed(s as i64 - l as i64),
-        ),
-        (Some(s), None) => (s.to_string(), "—".to_string(), "—".to_string()),
-        (None, Some(l)) => ("—".to_string(), l.to_string(), "—".to_string()),
-        (None, None) => ("—".to_string(), "—".to_string(), "—".to_string()),
-    };
-
-    let (sb, lb, db) = pair(sdk.map(|m| m.bytes), solang.map(|m| m.bytes));
-    let (si, li, di) = pair(sdk.map(|m| m.instrs), solang.map(|m| m.instrs));
-    let (sl, ll, dl) = pair(
+    let (sb, lb, db) = super::cells(sdk.map(|m| m.bytes), solang.map(|m| m.bytes));
+    let (si, li, di) = super::cells(sdk.map(|m| m.instrs), solang.map(|m| m.instrs));
+    let (sl, ll, dl) = super::cells(
         sdk.map(|m| m.locals as usize),
         solang.map(|m| m.locals as usize),
     );
-    let (sd, ld, dd) = pair(sdk.map(|m| m.depth), solang.map(|m| m.depth));
-    let (sc, lc, dc) = pair(sdk.map(|m| m.calls), solang.map(|m| m.calls));
+    let (sd, ld, dd) = super::cells(sdk.map(|m| m.depth), solang.map(|m| m.depth));
+    let (sc, lc, dc) = super::cells(sdk.map(|m| m.calls), solang.map(|m| m.calls));
 
     println!(
         "{name:<NAME$} {sb:>5} {lb:>5} {db:>5} │ {si:>5} {li:>5} {di:>5} │ {sl:>4} {ll:>4} {dl:>4} │ {sd:>4} {ld:>4} {dd:>4} │ {sc:>4} {lc:>4} {dc:>4}"
