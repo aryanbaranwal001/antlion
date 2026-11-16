@@ -47,7 +47,7 @@ antlion --build /abs/path/to/mypair      ->  out/mypair/
 ### Compare
 
 ```
-antlion --compare <name>... --report <report>... [--json] [--detail | --dump]
+antlion --compare <name>... --report <report>... [--json] [--detail | --dump] [--jobs <n>]
 ```
 
 Compares the two builds of a pair. It takes the pair's **name**, not its path, and reads
@@ -63,9 +63,15 @@ antlion --compare flow --report opcodes --dump
 antlion --compare scalar_id --report all --json
 ```
 
-`--json`, `--detail` and `--dump` come after the report names, in any order. `--json`
-prints the same results as JSON; see [JSON output](#json-output). `--detail` and `--dump`
-only affect the `opcodes` report; see [opcodes](#opcodes).
+`--json`, `--detail`, `--dump` and `--jobs <n>` come after the report names, in any order.
+`--json` prints the same results as JSON; see [JSON output](#json-output). `--detail` and
+`--dump` only affect the `opcodes` report; see [opcodes](#opcodes).
+
+`--jobs <n>` sets how many threads the `returns`, `cost` and `ledger` reports use. The
+default is 4, or fewer on a machine with fewer cores. More threads are faster and use more
+memory, and `--jobs 1` uses the least memory. The results are the same for every value.
+If the system cannot start the threads, antlion prints a warning and runs every call on
+one thread.
 
 ### Help and version
 
