@@ -139,6 +139,8 @@ CI. The numbers are the same as in the text reports.
 - A cell the text shows as `—` is `null`.
 - Numbers are raw: memory pages are a page count, not `16 (1 MiB)`.
 - Returned values and errors are strings, in full. The text cuts them to fit a column.
+- `returns` and `sequence` count the calls that disagreed in `disagreed`, and the calls
+  that failed on both sides with different errors in `errors_differ`.
 - `returns`, `cost`, `ledger` and `sequence` have `no_spec`, true when the contract has no
   spec and nothing was called, and `skipped`, the functions whose argument types antlion
   cannot build.
@@ -230,14 +232,18 @@ Each row ends with a verdict:
 | `DIFFER` | both sides returned, with different values; both are printed in full underneath |
 | `sdk failed` | only the Rust build failed |
 | `solang failed` | only the Solidity build failed |
-| `both failed` | both builds failed |
+| `both failed` | both builds failed, with the same error |
+| `errors differ` | both builds failed, each with a different error; both are printed in full underneath |
 
-For the malformed and `badarg` rows, `both failed` is the expected result, and `sdk failed`
-means the Solidity build accepted what the Rust build rejected. When both fail with
-different errors, both errors are printed in full, because one side may have accepted the
-input and failed later for another reason.
+For the malformed and `badarg` rows, a failure on both sides is the expected result, and
+`sdk failed` means the Solidity build accepted what the Rust build rejected. The error is
+compared by its code, such as `Error(Contract, #1)`, which is what a caller of the
+contract sees. `errors differ` means a caller sees a different reason for the failure on
+each side: one side may report its own contract error where the other only traps, or one
+side may have accepted the input and failed later for another reason.
 
-The last line counts the calls that ran on both sides and how many of them disagreed.
+The last lines count the calls that ran on both sides, how many of them disagreed, and how
+many failed on both sides with different errors.
 
 ### cost
 
@@ -293,7 +299,8 @@ sides did: `both`, `none`, `sdk` or `solang`.
 | `changes differ` | the same value, but only one side changed the storage |
 | `sdk failed` | only the Rust build failed |
 | `solang failed` | only the Solidity build failed |
-| `both failed` | both builds failed |
+| `both failed` | both builds failed, with the same error |
+| `errors differ` | both builds failed, each with a different error; both are printed in full underneath |
 
 On a step that is not `same`, both answers are printed in full, with the storage each side
 holds after the step.
@@ -304,6 +311,8 @@ happens, the last lines say so.
 
 In `--json`, each step has its `step` and `round` numbers, the `function`, the `verdict`,
 and for each side the answer (`ok` or `err`), `changed`, and the `storage` after the step.
+As in `returns`, `errors_differ` counts the steps that failed on both sides with different
+errors.
 
 ### opcodes
 
