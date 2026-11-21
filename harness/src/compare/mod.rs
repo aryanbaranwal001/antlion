@@ -4,6 +4,7 @@ use serde_json::{Map, Value, json};
 
 mod call;
 mod cost;
+mod events;
 mod functions;
 mod imports;
 mod interface;
@@ -30,6 +31,7 @@ pub enum Report {
     Cost,
     Ledger,
     Sequence,
+    Events,
     Opcodes,
     Functions,
     Layout,
@@ -37,7 +39,7 @@ pub enum Report {
 
 impl Report {
     /// Every report, in the order `all` runs them.
-    pub const ALL: [Report; 11] = [
+    pub const ALL: [Report; 12] = [
         Report::Size,
         Report::Sections,
         Report::Imports,
@@ -46,6 +48,7 @@ impl Report {
         Report::Cost,
         Report::Ledger,
         Report::Sequence,
+        Report::Events,
         Report::Opcodes,
         Report::Functions,
         Report::Layout,
@@ -62,6 +65,7 @@ impl Report {
             Report::Cost => "cost",
             Report::Ledger => "ledger",
             Report::Sequence => "sequence",
+            Report::Events => "events",
             Report::Opcodes => "opcodes",
             Report::Functions => "functions",
             Report::Layout => "layout",
@@ -86,7 +90,7 @@ impl Report {
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 4;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
@@ -240,6 +244,13 @@ fn pair(name: &str, args: &cli::Compare, no_json: &mut Vec<String>) -> Result<Op
                 sequence::collect(&sdk, &solang),
                 |d| sequence::text(name, d),
                 sequence::json,
+                out,
+            ),
+            Report::Events => emit(
+                r.name(),
+                events::collect(&sdk, &solang),
+                |d| events::text(name, d),
+                events::json,
                 out,
             ),
             Report::Opcodes => match out {

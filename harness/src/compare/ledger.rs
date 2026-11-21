@@ -229,7 +229,7 @@ pub(super) fn entries(host: &Host) -> Result<Vec<Entry>, HostError> {
 /// An `ScVal` on one line: numbers with their type as a suffix (`1u32`), symbols bare,
 /// strings quoted, vecs as `[..]` and maps as `{k: v}`. Anything rarer falls back to its
 /// debug form. The suffix matters: `U32(0)` and `U64(0)` are different keys.
-fn show(v: &ScVal) -> String {
+pub(super) fn show(v: &ScVal) -> String {
     let list = |items: Vec<String>| items.join(", ");
 
     match v {
