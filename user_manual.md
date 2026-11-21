@@ -17,6 +17,7 @@ a contract pair, see the [README](README.md).
    - [returns](#returns)
    - [cost](#cost)
    - [ledger](#ledger)
+   - [sequence](#sequence)
    - [opcodes](#opcodes)
    - [functions](#functions)
    - [layout](#layout)
@@ -73,11 +74,11 @@ antlion --compare scalar_id --report all --json
 `--json` prints the same results as JSON; see [JSON output](#json-output). `--detail` and
 `--dump` only affect the `opcodes` report; see [opcodes](#opcodes).
 
-`--jobs <n>` sets how many threads the `returns`, `cost` and `ledger` reports use. The
-default is 4, or fewer on a machine with fewer cores. More threads are faster and use more
-memory, and `--jobs 1` uses the least memory. The results are the same for every value.
-If the system cannot start the threads, antlion prints a warning and runs every call on
-one thread.
+`--jobs <n>` sets how many threads the `returns`, `cost`, `ledger` and `sequence` reports
+use. The default is 4, or fewer on a machine with fewer cores. More threads are faster and
+use more memory, and `--jobs 1` uses the least memory. The results are the same for every
+value. If the system cannot start the threads, antlion prints a warning and runs every
+call on one thread.
 
 ### Help and version
 
@@ -117,7 +118,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -138,9 +139,9 @@ CI. The numbers are the same as in the text reports.
 - A cell the text shows as `—` is `null`.
 - Numbers are raw: memory pages are a page count, not `16 (1 MiB)`.
 - Returned values and errors are strings, in full. The text cuts them to fit a column.
-- `returns`, `cost` and `ledger` have `no_spec`, true when the contract has no spec and
-  nothing was called, and `skipped`, the functions whose argument types antlion cannot
-  build.
+- `returns`, `cost`, `ledger` and `sequence` have `no_spec`, true when the contract has no
+  spec and nothing was called, and `skipped`, the functions whose argument types antlion
+  cannot build.
 - `no_json` names any report asked for that has no JSON form. Only `opcodes` with `--dump`
   has none; it is left out of every pair.
 - `failed` lists each pair that could not be compared, with its `name` and the `error`.
@@ -159,6 +160,7 @@ With `--json`, `--detail` changes nothing: the `opcodes` JSON always lists every
 | [`returns`](#returns) | Do both sides give the same answers? |
 | [`cost`](#cost) | What does one call cost to run? |
 | [`ledger`](#ledger) | Do both sides store the same data under the same keys? |
+| [`sequence`](#sequence) | Do both sides agree when each call builds on the calls before it? |
 | [`opcodes`](#opcodes) | What kind of code does each side produce? |
 | [`functions`](#functions) | Which functions account for the size and complexity? |
 | [`layout`](#layout) | What memory, tables and globals does each side declare? |
@@ -267,6 +269,41 @@ Each function ends with one of:
 
 Numbers carry their type, such as `1u32` or `0i64`, so values of different types never look
 the same.
+
+### sequence
+
+Every other report that calls a contract starts each call on a fresh deploy, so no call
+sees what an earlier call wrote. This one deploys each side once and calls every function
+on that deploy, in the order of the spec, with `small` arguments and every authorization
+granted. Then it does the full round a second time, so the second round reads what the
+first one wrote. For example, `get(1)` answers `0` in the first round and `1` in the
+second, after `put(1, 1)`.
+
+Each call gets a full budget, as it would in its own transaction.
+
+The two sides store their data in different layouts, which the `ledger` report shows, so
+their storage is never equal and is not compared. At each step two things must agree: the
+value returned, and whether the call changed the storage. The `changed` column says which
+sides did: `both`, `none`, `sdk` or `solang`.
+
+| Verdict | Means |
+|---|---|
+| `same` | both sides returned the same value, and both or neither changed the storage |
+| `DIFFER` | both sides returned, with different values |
+| `changes differ` | the same value, but only one side changed the storage |
+| `sdk failed` | only the Rust build failed |
+| `solang failed` | only the Solidity build failed |
+| `both failed` | both builds failed |
+
+On a step that is not `same`, both answers are printed in full, with the storage each side
+holds after the step.
+
+A failed call writes nothing. So after a step that failed on one side only, the two sides
+hold different data, and later steps can disagree for that reason alone. When this
+happens, the last lines say so.
+
+In `--json`, each step has its `step` and `round` numbers, the `function`, the `verdict`,
+and for each side the answer (`ok` or `err`), `changed`, and the `storage` after the step.
 
 ### opcodes
 

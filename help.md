@@ -25,8 +25,8 @@ OPTIONS
     --json                print one JSON document in place of the text reports
     --detail              opcodes only: break each bucket into its opcodes
     --dump                opcodes only: side-by-side disassembly
-    --jobs <n>            threads for returns, cost and ledger; default 4, or fewer
-                          on a machine with fewer cores
+    --jobs <n>            threads for returns, cost, ledger and sequence; default 4,
+                          or fewer on a machine with fewer cores
 
 REPORTS
 
@@ -37,6 +37,7 @@ REPORTS
     returns     what each function answers, side by side
     cost        metered cost of calling each function, module cached as on chain
     ledger      what each function leaves in storage: class, key and value
+    sequence    every function called in order on one deploy, twice over
     opcodes     opcode histogram, bucketed by kind
     functions   per-function size and complexity
     layout      declared memory, globals and tables
@@ -44,7 +45,8 @@ REPORTS
 
 INPUTS
 
-    returns calls every function once per input row. cost and ledger use `small`.
+    returns calls every function once per input row. cost, ledger and sequence use
+    `small`.
 
     small       values that ride inline in the 56 bit Val payload
     large       values past the payload, passed as object handles
