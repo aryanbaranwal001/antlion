@@ -13,15 +13,15 @@ const CLASS: usize = 11;
 const KEY: usize = 22;
 
 /// One stored value: which storage class holds it, its key and its value, rendered short.
-#[derive(PartialEq)]
-struct Entry {
+#[derive(Clone, PartialEq)]
+pub(super) struct Entry {
     class: &'static str,
     key: String,
     value: String,
 }
 
 /// What one side stored after the call, or the call's error on one line.
-type Side = Result<Vec<Entry>, String>;
+pub(super) type Side = Result<Vec<Entry>, String>;
 
 /// One function's storage on both sides, or a function skipped for its argument types.
 enum Item {
@@ -125,13 +125,7 @@ pub fn text(name: &str, d: &Data) {
 /// A failed call is `{"err": ...}` in place of `entries`.
 pub fn json(d: &Data) -> Value {
     let side = |s: &Side| match s {
-        Ok(v) => {
-            let entries: Vec<Value> = v
-                .iter()
-                .map(|e| json!({ "class": e.class, "key": e.key, "value": e.value }))
-                .collect();
-            json!({ "entries": entries })
-        }
+        Ok(v) => json!({ "entries": entries_json(v) }),
         Err(e) => json!({ "err": e }),
     };
 
@@ -159,7 +153,14 @@ pub fn json(d: &Data) -> Value {
     json!({ "no_spec": d.no_spec, "functions": functions, "skipped": skipped })
 }
 
-fn print_side(side: &str, entries: &Side) {
+/// Each entry as `{"class", "key", "value"}`.
+pub(super) fn entries_json(v: &[Entry]) -> Vec<Value> {
+    v.iter()
+        .map(|e| json!({ "class": e.class, "key": e.key, "value": e.value }))
+        .collect()
+}
+
+pub(super) fn print_side(side: &str, entries: &Side) {
     match entries {
         Err(e) => println!("{side:<SIDE$} [err] {e}"),
         Ok(v) if v.is_empty() => println!("{side:<SIDE$} {:<CLASS$} (nothing stored)", "—"),
@@ -194,7 +195,7 @@ fn snapshot(
 
 /// Every contract data entry the host holds. Instance storage lives inside the contract
 /// instance entry, so its map is unpacked into one entry per key.
-fn entries(host: &Host) -> Result<Vec<Entry>, HostError> {
+pub(super) fn entries(host: &Host) -> Result<Vec<Entry>, HostError> {
     let mut out = Vec::new();
     for (_, entry) in host.get_stored_entries()? {
         let Some((e, _)) = entry else { continue };

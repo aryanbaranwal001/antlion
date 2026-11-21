@@ -10,13 +10,13 @@ const KIND: usize = 6;
 const VALUE: usize = 24;
 
 /// What one side answered, as one line: the value, or the error.
-struct Answer {
+pub(super) struct Answer {
     ok: bool,
     text: String,
 }
 
 impl Answer {
-    fn of(v: &Result<ScVal, HostError>) -> Self {
+    pub(super) fn of(v: &Result<ScVal, HostError>) -> Self {
         match v {
             Ok(val) => Answer {
                 ok: true,
@@ -30,7 +30,7 @@ impl Answer {
     }
 
     /// One value, on a single line, as the text prints it in full.
-    fn full(&self) -> String {
+    pub(super) fn full(&self) -> String {
         if self.ok {
             self.text.clone()
         } else {
@@ -38,7 +38,7 @@ impl Answer {
         }
     }
 
-    fn json(&self) -> Value {
+    pub(super) fn json(&self) -> Value {
         if self.ok {
             json!({ "ok": self.text })
         } else {
@@ -287,7 +287,7 @@ fn invoke(
 }
 
 /// One value, trimmed to fit its column.
-fn show(v: &Answer) -> String {
+pub(super) fn show(v: &Answer) -> String {
     let flat = v.full();
     if flat.chars().count() > VALUE - 1 {
         format!("{}…", flat.chars().take(VALUE - 2).collect::<String>())

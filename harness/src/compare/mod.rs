@@ -12,6 +12,7 @@ mod ledger;
 mod opcodes;
 mod returns;
 mod section;
+mod sequence;
 mod size;
 
 use crate::cli::{self, Mode};
@@ -28,6 +29,7 @@ pub enum Report {
     Returns,
     Cost,
     Ledger,
+    Sequence,
     Opcodes,
     Functions,
     Layout,
@@ -35,7 +37,7 @@ pub enum Report {
 
 impl Report {
     /// Every report, in the order `all` runs them.
-    pub const ALL: [Report; 10] = [
+    pub const ALL: [Report; 11] = [
         Report::Size,
         Report::Sections,
         Report::Imports,
@@ -43,6 +45,7 @@ impl Report {
         Report::Returns,
         Report::Cost,
         Report::Ledger,
+        Report::Sequence,
         Report::Opcodes,
         Report::Functions,
         Report::Layout,
@@ -58,6 +61,7 @@ impl Report {
             Report::Returns => "returns",
             Report::Cost => "cost",
             Report::Ledger => "ledger",
+            Report::Sequence => "sequence",
             Report::Opcodes => "opcodes",
             Report::Functions => "functions",
             Report::Layout => "layout",
@@ -82,7 +86,7 @@ impl Report {
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
@@ -229,6 +233,13 @@ fn pair(name: &str, args: &cli::Compare, no_json: &mut Vec<String>) -> Result<Op
                 ledger::collect(&sdk, &solang),
                 |d| ledger::text(name, d),
                 ledger::json,
+                out,
+            ),
+            Report::Sequence => emit(
+                r.name(),
+                sequence::collect(&sdk, &solang),
+                |d| sequence::text(name, d),
+                sequence::json,
                 out,
             ),
             Report::Opcodes => match out {
