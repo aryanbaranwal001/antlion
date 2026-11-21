@@ -1,5 +1,5 @@
 use soroban_env_host::{
-    Env, EnvBase, Host, HostError, Symbol, Val,
+    AddressObject, Env, EnvBase, Host, HostError, Symbol, Val,
     testutils::{generate_account_id, generate_bytes_array},
 };
 
@@ -19,18 +19,9 @@ pub struct Cost {
     pub mem: u64,
 }
 
-/// Deploy `wasm` into a fresh host, call `func` once, and hand the result to `read`.
-///
-/// `args` gets the host and the contract's own address, because object handles belong
-/// to the host that runs the call. `read` gets the host, the returned value and what
-/// the call alone consumed.
-pub fn deploy_and_call<T>(
-    wasm: &[u8],
-    func: &str,
-    setup: Setup,
-    args: impl Fn(&Host, Val) -> Result<Vec<Val>, HostError>,
-    read: impl FnOnce(&Host, Val, Cost) -> Result<T, HostError>,
-) -> Result<T, HostError> {
+/// Deploy `wasm` into a fresh host, set up as `setup` says. Returns the host and the
+/// contract's address.
+pub fn deploy(wasm: &[u8], setup: Setup) -> Result<(Host, AddressObject), HostError> {
     let host = Host::test_host_with_recording_footprint();
     let account = generate_account_id(&host);
     let salt = generate_bytes_array(&host);
@@ -41,8 +32,18 @@ pub fn deploy_and_call<T>(
     if setup.authed {
         host.switch_to_recording_auth(false)?;
     }
+    Ok((host, contract))
+}
 
-    let args = args(&host, contract.to_val())?;
+/// Call `func` on `contract` with the arguments `args` builds. The cost is what the call
+/// alone consumed, not the building of its arguments.
+pub fn call(
+    host: &Host,
+    contract: AddressObject,
+    func: &str,
+    args: impl Fn(&Host, Val) -> Result<Vec<Val>, HostError>,
+) -> Result<(Val, Cost), HostError> {
+    let args = args(host, contract.to_val())?;
     let sym = Symbol::from(host.symbol_new_from_slice(func.as_bytes())?);
     let argv = host.vec_new_from_slice(&args)?;
 
@@ -56,5 +57,22 @@ pub fn deploy_and_call<T>(
         cpu: budget.get_cpu_insns_consumed()? - base_cpu,
         mem: budget.get_mem_bytes_consumed()? - base_mem,
     };
+    Ok((out, cost))
+}
+
+/// Deploy `wasm` into a fresh host, call `func` once, and hand the result to `read`.
+///
+/// `args` gets the host and the contract's own address, because object handles belong
+/// to the host that runs the call. `read` gets the host, the returned value and what
+/// the call alone consumed.
+pub fn deploy_and_call<T>(
+    wasm: &[u8],
+    func: &str,
+    setup: Setup,
+    args: impl Fn(&Host, Val) -> Result<Vec<Val>, HostError>,
+    read: impl FnOnce(&Host, Val, Cost) -> Result<T, HostError>,
+) -> Result<T, HostError> {
+    let (host, contract) = deploy(wasm, setup)?;
+    let (out, cost) = call(&host, contract, func, args)?;
     read(&host, out, cost)
 }
