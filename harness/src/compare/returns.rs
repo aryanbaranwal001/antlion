@@ -64,6 +64,8 @@ pub struct Data {
     items: Vec<Item>,
     checked: usize,
     differ: usize,
+    /// Calls that failed on both sides, with a different error on each.
+    errors_differ: usize,
 }
 
 /// Invoke every function on both builds and compare what each one answers. Cost says how
@@ -84,11 +86,13 @@ pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
         items: Vec::new(),
         checked: 0,
         differ: 0,
+        errors_differ: 0,
     };
     for p in parts {
         d.items.extend(p.items);
         d.checked += p.checked;
         d.differ += p.differ;
+        d.errors_differ += p.errors_differ;
     }
     d
 }
@@ -100,6 +104,7 @@ fn one(sdk: &[u8], solang: &[u8], iface: &spec::Interface, f: &spec::FnSpec) -> 
         items: Vec::new(),
         checked: 0,
         differ: 0,
+        errors_differ: 0,
     };
 
     if !spec::args_supported(iface, &f.inputs) {
@@ -165,7 +170,11 @@ impl Data {
                     "DIFFER"
                 }
             }
-            (Err(_), Err(_)) => "both failed",
+            (Err(a), Err(b)) if a.error == b.error => "both failed",
+            (Err(_), Err(_)) => {
+                self.errors_differ += 1;
+                "errors differ"
+            }
             (Err(_), Ok(_)) => "sdk failed",
             (Ok(_), Err(_)) => "solang failed",
         };
@@ -213,6 +222,10 @@ pub fn text(name: &str, d: &Data) {
         "note: {} call(s) ran on both sides, {} disagreed",
         d.checked, d.differ
     );
+    println!(
+        "note: {} call(s) failed on both sides with different errors",
+        d.errors_differ
+    );
     println!();
 }
 
@@ -245,6 +258,7 @@ pub fn json(d: &Data) -> Value {
         "skipped": skipped,
         "checked": d.checked,
         "disagreed": d.differ,
+        "errors_differ": d.errors_differ,
     })
 }
 

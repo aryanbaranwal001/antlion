@@ -1,5 +1,5 @@
 use serde_json::{Value, json};
-use soroban_env_host::{Host, TryFromVal, xdr::ScVal};
+use soroban_env_host::{Error, Host, TryFromVal, xdr::ScVal};
 
 use super::call::{Setup, call, deploy};
 use super::ledger::{self, Entry};
@@ -17,6 +17,8 @@ const ROUNDS: usize = 2;
 /// One call on one side: what it answered, and the storage after it.
 struct Step {
     value: Option<ScVal>,
+    /// The error code, when the call failed.
+    error: Option<Error>,
     answer: Answer,
     changed: bool,
     storage: Vec<Entry>,
@@ -39,6 +41,8 @@ pub struct Data {
     rows: Vec<Row>,
     checked: usize,
     differ: usize,
+    /// Steps that failed on both sides, with a different error on each.
+    errors_differ: usize,
 }
 
 /// Deploy each build once and call every function in spec order on that one deploy,
@@ -61,6 +65,7 @@ pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
         rows: Vec::new(),
         checked: 0,
         differ: 0,
+        errors_differ: 0,
     };
 
     let (s, l) = rayon::join(
@@ -92,7 +97,11 @@ pub fn collect(sdk: &Contract, solang: &Contract) -> Data {
                     "same"
                 }
             }
-            (None, None) => "both failed",
+            (None, None) if sdk.error == solang.error => "both failed",
+            (None, None) => {
+                d.errors_differ += 1;
+                "errors differ"
+            }
             (None, Some(_)) => "sdk failed",
             (Some(_), None) => "solang failed",
         };
@@ -135,6 +144,7 @@ fn run(wasm: &[u8], iface: &spec::Interface, funcs: &[&spec::FnSpec]) -> Result<
 
             steps.push(Step {
                 value: out.as_ref().ok().cloned(),
+                error: out.as_ref().err().map(|e| e.error),
                 answer: Answer::of(&out),
                 changed: storage != before,
                 storage: storage.clone(),
@@ -203,6 +213,10 @@ pub fn text(name: &str, d: &Data) {
         d.checked, d.differ
     );
     println!(
+        "note: {} step(s) failed on both sides with different errors",
+        d.errors_differ
+    );
+    println!(
         "note: the storage layouts differ by design, so only whether a step changed it is compared"
     );
     // A failed call writes nothing, so after it the two sides hold different state.
@@ -260,5 +274,6 @@ pub fn json(d: &Data) -> Value {
         "skipped": d.skipped,
         "checked": d.checked,
         "disagreed": d.differ,
+        "errors_differ": d.errors_differ,
     })
 }
