@@ -19,6 +19,7 @@ members = [
     "contracts/vec_id/sdk",
     "contracts/auth/sdk",
     "contracts/errors/sdk",
+    "contracts/events/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
