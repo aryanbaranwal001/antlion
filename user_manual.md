@@ -18,6 +18,7 @@ a contract pair, see the [README](README.md).
    - [cost](#cost)
    - [ledger](#ledger)
    - [sequence](#sequence)
+   - [events](#events)
    - [opcodes](#opcodes)
    - [functions](#functions)
    - [layout](#layout)
@@ -74,11 +75,11 @@ antlion --compare scalar_id --report all --json
 `--json` prints the same results as JSON; see [JSON output](#json-output). `--detail` and
 `--dump` only affect the `opcodes` report; see [opcodes](#opcodes).
 
-`--jobs <n>` sets how many threads the `returns`, `cost`, `ledger` and `sequence` reports
-use. The default is 4, or fewer on a machine with fewer cores. More threads are faster and
-use more memory, and `--jobs 1` uses the least memory. The results are the same for every
-value. If the system cannot start the threads, antlion prints a warning and runs every
-call on one thread.
+`--jobs <n>` sets how many threads the reports that call contracts use: `returns`, `cost`,
+`ledger`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
+cores. More threads are faster and use more memory, and `--jobs 1` uses the least memory.
+The results are the same for every value. If the system cannot start the threads, antlion
+prints a warning and runs every call on one thread.
 
 ### Help and version
 
@@ -118,7 +119,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -141,9 +142,9 @@ CI. The numbers are the same as in the text reports.
 - Returned values and errors are strings, in full. The text cuts them to fit a column.
 - `returns` and `sequence` count the calls that disagreed in `disagreed`, and the calls
   that failed on both sides with different errors in `errors_differ`.
-- `returns`, `cost`, `ledger` and `sequence` have `no_spec`, true when the contract has no
-  spec and nothing was called, and `skipped`, the functions whose argument types antlion
-  cannot build.
+- `returns`, `cost`, `ledger`, `sequence` and `events` have `no_spec`, true when the
+  contract has no spec and nothing was called, and `skipped`, the functions whose argument
+  types antlion cannot build.
 - `no_json` names any report asked for that has no JSON form. Only `opcodes` with `--dump`
   has none; it is left out of every pair.
 - `failed` lists each pair that could not be compared, with its `name` and the `error`.
@@ -163,6 +164,7 @@ With `--json`, `--detail` changes nothing: the `opcodes` JSON always lists every
 | [`cost`](#cost) | What does one call cost to run? |
 | [`ledger`](#ledger) | Do both sides store the same data under the same keys? |
 | [`sequence`](#sequence) | Do both sides agree when each call builds on the calls before it? |
+| [`events`](#events) | Do both sides emit the same events, and what does a failure say? |
 | [`opcodes`](#opcodes) | What kind of code does each side produce? |
 | [`functions`](#functions) | Which functions account for the size and complexity? |
 | [`layout`](#layout) | What memory, tables and globals does each side declare? |
@@ -313,6 +315,38 @@ In `--json`, each step has its `step` and `round` numbers, the `function`, the `
 and for each side the answer (`ok` or `err`), `changed`, and the `storage` after the step.
 As in `returns`, `errors_differ` counts the steps that failed on both sides with different
 errors.
+
+### events
+
+Calls every function once on a fresh deploy, with `small` arguments and every authorization
+granted, as `ledger` does, and lists the events of the call on each side. The first row of
+each side is the `result` of the call: the value, or the error code.
+
+| Kind | Means |
+|---|---|
+| `contract` | an event the contract emitted, with its topics and its data |
+| `log` | a diagnostic message, written by the contract or by the host |
+| `error` | a diagnostic the host records for an error, with the error code as a topic |
+
+Only `contract` events are compared. Each function ends with one of:
+
+| Line | Means |
+|---|---|
+| `events: same` | both sides emitted the same events, with the same topics and data, in the same order |
+| `events: differ` | the events differ in number, topics or data |
+| `events: none emitted` | neither side emitted a `contract` event |
+| `events: not compared, a deploy failed` | one side could not be deployed |
+
+`log` and `error` come from the host's diagnostic mode, which is switched on after the
+deploy, so only the call's own diagnostics are shown. They are where a failure says why it
+failed. The host also records a `fn_call` and a `fn_return` for every call; they are the
+same on both sides, so they are left out.
+
+A `*` marks an event from a call that failed. The network keeps no `contract` event from a
+failed call, only its diagnostics.
+
+In `--json`, each function has `events`, the verdict, and for each side the `result` and
+every event with its `kind`, `topics`, `data` and `failed_call`.
 
 ### opcodes
 
