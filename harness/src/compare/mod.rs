@@ -106,7 +106,7 @@ impl Report {
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
-const SCHEMA_VERSION: u32 = 8;
+const SCHEMA_VERSION: u32 = 9;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
