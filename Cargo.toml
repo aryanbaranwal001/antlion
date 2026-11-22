@@ -22,6 +22,7 @@ members = [
     "contracts/events/sdk",
     "contracts/numeric/sdk",
     "contracts/bytes_id/sdk",
+    "contracts/ttl/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
