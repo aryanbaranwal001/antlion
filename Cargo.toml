@@ -20,6 +20,7 @@ members = [
     "contracts/auth/sdk",
     "contracts/errors/sdk",
     "contracts/events/sdk",
+    "contracts/numeric/sdk",
 ]
 default-members = ["harness"]
 resolver = "2"
