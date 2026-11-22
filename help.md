@@ -47,6 +47,8 @@ REPORTS
                 every storage host call it makes, run as the network runs it
     trace       every host call each call makes, in order, with its arguments,
                 counted and lined up side by side
+    ttl         how long each entry lives, the rent of the deploy and of each
+                call, and what each side does once its entries expire
     sequence    every function called in order on one deploy, twice over
     events      the events each function emits, and the diagnostics of a failure
     opcodes     opcode histogram, bucketed by kind
@@ -57,7 +59,7 @@ REPORTS
 INPUTS
 
     returns calls every function once per input row. cost, ledger, access,
-    trace, sequence and events use `small`. scaling sets every integer argument to n and gives every
+    trace, ttl, sequence and events use `small`. scaling sets every integer argument to n and gives every
     list n elements, for n from 0 to 64.
 
     small       values that ride inline in the 56 bit Val payload
@@ -91,7 +93,7 @@ BUNDLED CONTRACTS
     baseline   scalar_id   scalar_math   scalar_store   storage   flow
     struct_store   struct_mem   struct_id   struct_class   struct_vec
     vec_mem   vec_id   mapping   location   slots   auth   errors   events
-    numeric   bytes_id
+    numeric   bytes_id   ttl
 
 EXAMPLES
 

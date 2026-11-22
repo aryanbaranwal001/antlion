@@ -21,6 +21,7 @@ a contract pair, see the [README](README.md).
    - [ledger](#ledger)
    - [access](#access)
    - [trace](#trace)
+   - [ttl](#ttl)
    - [sequence](#sequence)
    - [events](#events)
    - [opcodes](#opcodes)
@@ -81,7 +82,7 @@ affects the `opcodes` and `cost` reports, and `--dump` only `opcodes`; see
 [opcodes](#opcodes) and [cost](#cost).
 
 `--jobs <n>` sets how many threads the reports that call contracts use: `returns`, `cost`,
-`scaling`, `ledger`, `access`, `trace`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
+`scaling`, `ledger`, `access`, `trace`, `ttl`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
 cores. More threads are faster and use more memory, and `--jobs 1` uses the least memory.
 The results are the same for every value. If the system cannot start the threads, antlion
 prints a warning and runs every call on one thread.
@@ -124,7 +125,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 9,
+  "schema_version": 10,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -147,7 +148,7 @@ CI. The numbers are the same as in the text reports.
 - Returned values and errors are strings, in full. The text cuts them to fit a column.
 - `returns` and `sequence` count the calls that disagreed in `disagreed`, and the calls
   that failed on both sides with different errors in `errors_differ`.
-- `returns`, `cost`, `scaling`, `ledger`, `access`, `trace`, `sequence` and `events` have `no_spec`, true when
+- `returns`, `cost`, `scaling`, `ledger`, `access`, `trace`, `ttl`, `sequence` and `events` have `no_spec`, true when
   the contract has no spec and nothing was called, and `skipped`, the functions whose
   argument types antlion cannot build. `scaling` also has `unsized`, the functions with no
   argument that can carry a size.
@@ -177,6 +178,7 @@ and the `cost` JSON always has every cost type.
 | [`ledger`](#ledger) | Do both sides store the same data under the same keys? |
 | [`access`](#access) | Which ledger entries does each call touch, and how many storage calls does it make? |
 | [`trace`](#trace) | Which host functions does each call use, in which order, and with which arguments? |
+| [`ttl`](#ttl) | How long does each entry live, what rent does each side pay, and what happens when an entry expires? |
 | [`sequence`](#sequence) | Do both sides agree when each call builds on the calls before it? |
 | [`events`](#events) | Do both sides emit the same events, and what does a failure say? |
 | [`opcodes`](#opcodes) | What kind of code does each side produce? |
@@ -410,6 +412,31 @@ For each function there are three parts:
 An argument is shown as the host renders it, cut to 40 characters; the JSON has it in
 full. An object argument is a handle, such as `Vec(obj#3)`, so two equal objects can show
 different numbers.
+
+### ttl
+
+How long each ledger entry lives, the rent each side pays, and what each side does once its
+entries expire. The rent is given in ledger bytes, as the host meters it: one byte kept live
+for one ledger. The rent fee is in proportion to it.
+
+The report has three parts:
+
+1. **Deploy.** The rent of uploading the code, creating the instance and running the
+   constructor, and the part of it that the constructor's own writes add.
+2. **Each call.** Every function runs once on a fresh deploy at ledger 0, with `small`
+   arguments and every authorization granted. For each side, a table lists every entry the
+   call created or whose lifetime it changed: `live until` is the last ledger it was live in
+   before the call, or `new`, and `now` is the same after the call. At ledger 0 that is also
+   the entry's TTL. A line per side then gives the rent the call pays and its answer.
+3. **Lifetime.** Each side is deployed once, and every function is called in spec order.
+   Then both ledgers move to one past the first entry, on either side, that expires, and every
+   function is called again. This happens three times, and an entry that has expired once is
+   not waited for again. Each round lists the ledger, the entries that have expired on each
+   side, and each function's answer on both sides.
+
+The host used here behaves as a simulation does since protocol 23: an expired temporary
+entry is gone, and an expired persistent entry, or the instance and code, is restored when a
+call touches it.
 
 ### sequence
 
