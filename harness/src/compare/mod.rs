@@ -19,6 +19,7 @@ mod section;
 mod sequence;
 mod size;
 mod trace;
+mod ttl;
 
 use crate::cli::{self, Mode};
 use crate::error::{Error, Result};
@@ -38,6 +39,7 @@ pub enum Report {
     Ledger,
     Access,
     Trace,
+    Ttl,
     Sequence,
     Events,
     Opcodes,
@@ -47,7 +49,7 @@ pub enum Report {
 
 impl Report {
     /// Every report, in the order `all` runs them.
-    pub const ALL: [Report; 16] = [
+    pub const ALL: [Report; 17] = [
         Report::Size,
         Report::Sections,
         Report::Imports,
@@ -59,6 +61,7 @@ impl Report {
         Report::Ledger,
         Report::Access,
         Report::Trace,
+        Report::Ttl,
         Report::Sequence,
         Report::Events,
         Report::Opcodes,
@@ -80,6 +83,7 @@ impl Report {
             Report::Ledger => "ledger",
             Report::Access => "access",
             Report::Trace => "trace",
+            Report::Ttl => "ttl",
             Report::Sequence => "sequence",
             Report::Events => "events",
             Report::Opcodes => "opcodes",
@@ -106,7 +110,7 @@ impl Report {
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
-const SCHEMA_VERSION: u32 = 9;
+const SCHEMA_VERSION: u32 = 10;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
@@ -281,6 +285,13 @@ fn pair(name: &str, args: &cli::Compare, no_json: &mut Vec<String>) -> Result<Op
                 trace::collect(&sdk, &solang),
                 |d| trace::text(name, d),
                 trace::json,
+                out,
+            ),
+            Report::Ttl => emit(
+                r.name(),
+                ttl::collect(&sdk, &solang),
+                |d| ttl::text(name, d),
+                ttl::json,
                 out,
             ),
             Report::Sequence => emit(

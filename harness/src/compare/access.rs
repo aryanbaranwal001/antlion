@@ -282,7 +282,7 @@ pub(super) fn trace(
 }
 
 /// A ledger key, short: the storage class and the key for contract data.
-fn entry_name(k: &LedgerKey) -> String {
+pub(super) fn entry_name(k: &LedgerKey) -> String {
     match k {
         LedgerKey::ContractData(d) => match &d.key {
             ScVal::LedgerKeyContractInstance => "instance entry".to_string(),
