@@ -16,6 +16,7 @@ a contract pair, see the [README](README.md).
    - [interface](#interface)
    - [returns](#returns)
    - [cost](#cost)
+   - [scaling](#scaling)
    - [ledger](#ledger)
    - [sequence](#sequence)
    - [events](#events)
@@ -72,11 +73,12 @@ antlion --compare scalar_id --report all --json
 ```
 
 `--json`, `--detail`, `--dump` and `--jobs <n>` come after the report names, in any order.
-`--json` prints the same results as JSON; see [JSON output](#json-output). `--detail` and
-`--dump` only affect the `opcodes` report; see [opcodes](#opcodes).
+`--json` prints the same results as JSON; see [JSON output](#json-output). `--detail`
+affects the `opcodes` and `cost` reports, and `--dump` only `opcodes`; see
+[opcodes](#opcodes) and [cost](#cost).
 
 `--jobs <n>` sets how many threads the reports that call contracts use: `returns`, `cost`,
-`ledger`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
+`scaling`, `ledger`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
 cores. More threads are faster and use more memory, and `--jobs 1` uses the least memory.
 The results are the same for every value. If the system cannot start the threads, antlion
 prints a warning and runs every call on one thread.
@@ -119,7 +121,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -142,15 +144,18 @@ CI. The numbers are the same as in the text reports.
 - Returned values and errors are strings, in full. The text cuts them to fit a column.
 - `returns` and `sequence` count the calls that disagreed in `disagreed`, and the calls
   that failed on both sides with different errors in `errors_differ`.
-- `returns`, `cost`, `ledger`, `sequence` and `events` have `no_spec`, true when the
-  contract has no spec and nothing was called, and `skipped`, the functions whose argument
-  types antlion cannot build.
+- `returns`, `cost`, `scaling`, `ledger`, `sequence` and `events` have `no_spec`, true when
+  the contract has no spec and nothing was called, and `skipped`, the functions whose
+  argument types antlion cannot build. `scaling` also has `unsized`, the functions with no
+  argument that can carry a size.
+- `cost` always has `types`, what each cost type charged, with or without `--detail`.
 - `no_json` names any report asked for that has no JSON form. Only `opcodes` with `--dump`
   has none; it is left out of every pair.
 - `failed` lists each pair that could not be compared, with its `name` and the `error`.
   Such a pair is not in `pairs`, and the exit status is 1.
 
-With `--json`, `--detail` changes nothing: the `opcodes` JSON always lists every opcode.
+With `--json`, `--detail` changes nothing: the `opcodes` JSON always lists every opcode,
+and the `cost` JSON always has every cost type.
 
 ## Reports
 
@@ -161,7 +166,8 @@ With `--json`, `--detail` changes nothing: the `opcodes` JSON always lists every
 | [`imports`](#imports) | Which host functions does each side use? |
 | [`interface`](#interface) | Do both sides declare the same functions? |
 | [`returns`](#returns) | Do both sides give the same answers? |
-| [`cost`](#cost) | What does one call cost to run? |
+| [`cost`](#cost) | What does one call cost to run, and how much of it is the function itself? |
+| [`scaling`](#scaling) | How does the cost grow with the size of the input or the stored data? |
 | [`ledger`](#ledger) | Do both sides store the same data under the same keys? |
 | [`sequence`](#sequence) | Do both sides agree when each call builds on the calls before it? |
 | [`events`](#events) | Do both sides emit the same events, and what does a failure say? |
@@ -256,7 +262,49 @@ The module is put in the host's module cache before the call. The network keeps 
 contract parsed (CAP-0065, protocol 23), so a real call pays to set up the module but not
 to parse it, and this report measures the same.
 
-Every call has a large fixed cost, so compare the `diff` column, not the totals.
+Two costs belong to the module, not to one function, and come first:
+
+- **module parse** is what parsing the module costs. The network charges it once, at
+  upload, so no call pays it.
+- **module instantiate** is what every call pays before its function runs: making the
+  cached module ready, with its linear memory. antlion measures it as a call to a function
+  the module does not export. The host makes the module ready, then fails to find the
+  function.
+
+For each function, `cpu insns` is the whole call. `instantiate` is the module's instantiate
+cost, and `run` is the rest: what the function itself used. Most of a small call is
+instantiate, so `run` shows the difference that the code makes.
+
+With `--detail`, each block also lists what each cost type (`ContractCostType`, the host's
+names for what it charges) charged on each side, such as `WasmInsnExec` for the contract's
+own instructions and `MemAlloc` for memory. A type's memory is what it charged. The total
+memory is the peak, which is lower when memory was given back during the call.
+
+Every call runs 3 times, each time on a fresh host. The metering must give the same cost
+every time, because every node on the network must agree on it. The last note says so, and
+a `[warn]` line names any call whose cost changed.
+
+### scaling
+
+How the cost of each function grows with its size. Size `n` means that every integer
+argument is `n` and every list has `n` elements. Every other argument is `small`.
+
+Each function gets one deploy on each side, with every authorization granted. It is called
+at every size from 0 to 64, in order, on that deploy. So each call also sees what the calls
+before it wrote: at size `n`, a function that writes one key per call finds `n` keys
+already there. This is how the report measures the cost of a growing mapping. Each call gets
+a full budget, and its cost is the call alone.
+
+The table shows sizes 1, 2, 4, 8, 16, 32 and 64. The last line gives the growth on each
+side:
+
+- `flat`: the CPU from size 4 to size 64 grows by less than 1%.
+- `n^k`: the power of `n` that fits the growth from size 4 to 16 to 64. `n^1.0` is
+  linear, and `n^2.0` is quadratic.
+- `irregular`: the cost went down between two of those sizes.
+- `n/a`: one of those calls failed.
+
+A function with no integer or list argument is skipped.
 
 ### ledger
 

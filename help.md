@@ -23,7 +23,8 @@ OPTIONS
 
     --report <report>...  reports to run; required, pass `all` for every one
     --json                print one JSON document in place of the text reports
-    --detail              opcodes only: break each bucket into its opcodes
+    --detail              opcodes: break each bucket into its opcodes; cost: add
+                          what each cost type charged
     --dump                opcodes only: side-by-side disassembly
     --jobs <n>            threads for the reports that call contracts; default 4,
                           or fewer on a machine with fewer cores
@@ -35,7 +36,9 @@ REPORTS
     imports     which host functions each side imports
     interface   every exported function's signature
     returns     what each function answers, side by side
-    cost        metered cost of calling each function, module cached as on chain
+    cost        metered cost of calling each function, module cached as on chain,
+                split into instantiate and run, each call measured 3 times
+    scaling     how the cost of each function grows with its size, 1 to 64
     ledger      what each function leaves in storage: class, key and value
     sequence    every function called in order on one deploy, twice over
     events      the events each function emits, and the diagnostics of a failure
@@ -47,7 +50,8 @@ REPORTS
 INPUTS
 
     returns calls every function once per input row. cost, ledger, sequence and
-    events use `small`.
+    events use `small`. scaling sets every integer argument to n and gives every
+    list n elements, for n from 0 to 64.
 
     small       values that ride inline in the 56 bit Val payload
     large       values past the payload, passed as object handles
