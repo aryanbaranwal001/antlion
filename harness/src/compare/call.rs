@@ -1,6 +1,8 @@
 use soroban_env_host::{
     AddressObject, Env, EnvBase, Host, HostError, Symbol, Val,
+    budget::Budget,
     testutils::{generate_account_id, generate_bytes_array},
+    xdr::ContractCostType,
 };
 
 /// How the host is set up before the call.
@@ -14,9 +16,52 @@ pub struct Setup {
 }
 
 /// What one call consumed.
+#[derive(Clone, PartialEq)]
 pub struct Cost {
     pub cpu: u64,
     pub mem: u64,
+    /// What each cost type charged, for every type that charged anything, in the host's
+    /// order. A type's `mem` is what it charged; the total `mem` is the peak, which is lower
+    /// when memory was given back during the call.
+    pub types: Vec<TypeCost>,
+}
+
+/// What one `ContractCostType` charged.
+#[derive(Clone, Copy, PartialEq)]
+pub struct TypeCost {
+    pub ty: ContractCostType,
+    pub cpu: u64,
+    pub mem: u64,
+}
+
+/// What every cost type charged so far, in the host's order.
+pub fn trackers(budget: &Budget) -> Result<Vec<TypeCost>, HostError> {
+    ContractCostType::variants()
+        .into_iter()
+        .map(|ty| {
+            let t = budget.get_tracker(ty)?;
+            Ok(TypeCost {
+                ty,
+                cpu: t.cpu,
+                mem: t.mem,
+            })
+        })
+        .collect()
+}
+
+/// What each type charged between `before` and `after`, leaving out the types that
+/// charged nothing.
+pub fn charged(before: &[TypeCost], after: &[TypeCost]) -> Vec<TypeCost> {
+    before
+        .iter()
+        .zip(after)
+        .map(|(b, a)| TypeCost {
+            ty: a.ty,
+            cpu: a.cpu - b.cpu,
+            mem: a.mem - b.mem,
+        })
+        .filter(|t| t.cpu > 0 || t.mem > 0)
+        .collect()
 }
 
 /// Deploy `wasm` into a fresh host, set up as `setup` says. Returns the host and the
@@ -50,12 +95,14 @@ pub fn call(
     let budget = host.budget_cloned();
     let base_cpu = budget.get_cpu_insns_consumed()?;
     let base_mem = budget.get_mem_bytes_consumed()?;
+    let base_types = trackers(&budget)?;
 
     let out = host.call(contract, sym, argv)?;
 
     let cost = Cost {
         cpu: budget.get_cpu_insns_consumed()? - base_cpu,
         mem: budget.get_mem_bytes_consumed()? - base_mem,
+        types: charged(&base_types, &trackers(&budget)?),
     };
     Ok((out, cost))
 }
