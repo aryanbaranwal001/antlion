@@ -14,6 +14,7 @@ a contract pair, see the [README](README.md).
    - [sections](#sections)
    - [imports](#imports)
    - [interface](#interface)
+   - [meta](#meta)
    - [returns](#returns)
    - [cost](#cost)
    - [scaling](#scaling)
@@ -122,7 +123,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -166,6 +167,7 @@ and the `cost` JSON always has every cost type.
 | [`sections`](#sections) | Which part of the module holds the bytes? |
 | [`imports`](#imports) | Which host functions does each side use? |
 | [`interface`](#interface) | Do both sides declare the same functions? |
+| [`meta`](#meta) | What protocol does each side need, and what types, errors and events does it declare? |
 | [`returns`](#returns) | Do both sides give the same answers? |
 | [`cost`](#cost) | What does one call cost to run, and how much of it is the function itself? |
 | [`scaling`](#scaling) | How does the cost grow with the size of the input or the stored data? |
@@ -201,6 +203,24 @@ Every exported function with its argument and return types, read from the module
 These are the Soroban types callers see. Inside the WebAssembly every argument and return
 value is an `i64`, so a difference here is in what each side tells callers, not in the
 code.
+
+### meta
+
+Decodes the three custom sections that describe a contract. If a section appears more than
+once, its parts are read in order, as one.
+
+- **`contractenvmetav0`**: the host protocol version the build was made for, and its pre
+  release number. The network does not run a contract made for a newer protocol than its
+  own.
+- **`contractmetav0`**: key and value text, such as the compiler and SDK versions. A key
+  that only one side has shows `—` on the other.
+- **`contractspecv0`**: how many entries of each kind the spec declares: function, struct,
+  union, enum, error enum and event. Every kind but functions is then listed by name, with
+  its cases for a union, an enum or an error enum. Functions are compared by
+  [interface](#interface).
+
+The last line says whether both sides declare the same types, errors and events, in any
+order.
 
 ### returns
 

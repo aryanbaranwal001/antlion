@@ -35,6 +35,8 @@ REPORTS
     sections    per-section byte breakdown
     imports     which host functions each side imports
     interface   every exported function's signature
+    meta        the protocol each build needs, its metadata text, and every type,
+                error and event its spec declares
     returns     what each function answers, side by side
     cost        metered cost of calling each function, module cached as on chain,
                 split into instantiate and run, each call measured 3 times
