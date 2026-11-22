@@ -39,7 +39,8 @@ REPORTS
                 error and event its spec declares
     returns     what each function answers, side by side
     cost        metered cost of calling each function, module cached as on chain,
-                split into instantiate and run, each call measured 3 times
+                split into instantiate and run, each call measured 3 times, and
+                the cost to fail of every call that fails at any input
     scaling     how the cost of each function grows with its size, 1 to 64
     ledger      what each function leaves in storage: class, key and value
     access      which ledger entries each call reads and writes, their sizes, and

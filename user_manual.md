@@ -124,7 +124,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 8,
+  "schema_version": 9,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -152,6 +152,8 @@ CI. The numbers are the same as in the text reports.
   argument types antlion cannot build. `scaling` also has `unsized`, the functions with no
   argument that can carry a size.
 - `cost` always has `types`, what each cost type charged, with or without `--detail`.
+  Each side also has `failed`, the error code of a call that failed, and each function has
+  `fails`, the calls past `small` that failed on one side or both.
 - `no_json` names any report asked for that has no JSON form. Only `opcodes` with `--dump`
   has none; it is left out of every pair.
 - `failed` lists each pair that could not be compared, with its `name` and the `error`.
@@ -303,6 +305,13 @@ With `--detail`, each block also lists what each cost type (`ContractCostType`, 
 names for what it charges) charged on each side, such as `WasmInsnExec` for the contract's
 own instructions and `MemAlloc` for memory. A type's memory is what it charged. The total
 memory is the peak, which is lower when memory was given back during the call.
+
+A call that fails is measured too: the host charges for the work done up to the failure.
+Its block starts with `[err] ... call failed`, its error code, and the table below is its
+cost to fail. At the end, a **cost to fail** table lists every call that failed on one
+side or both, at `small` and at `large`, `bound` and `neg`. For each it gives the `run` cost
+of each side and whether that side failed (`failed`), answered (`ok`) or could not be
+measured (`err`).
 
 Every call runs 3 times, each time on a fresh host. The metering must give the same cost
 every time, because every node on the network must agree on it. The last note says so, and
