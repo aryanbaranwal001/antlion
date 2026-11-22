@@ -45,16 +45,26 @@ struct Write {
     after: Option<u32>,
 }
 
+/// One host call the contract made: the host function's name and each argument, as the
+/// trace renders it. An object argument is a handle, such as `Vec(obj#3)`.
+#[derive(Clone, PartialEq)]
+pub(super) struct HostCall {
+    pub(super) name: &'static str,
+    pub(super) args: Vec<String>,
+}
+
 /// What one call touched: the entries in its footprint, the bytes it wrote, and every
 /// storage host call it made, by function and storage class.
-struct Access {
-    result: String,
+pub(super) struct Access {
+    pub(super) result: String,
     read_only: usize,
     read_write: usize,
     write_bytes: u32,
     writes: Vec<Write>,
     /// `get_contract_data instance` and so on, with how many times each was called.
     calls: BTreeMap<String, usize>,
+    /// Every host call the contract made, in order.
+    pub(super) trace: Vec<HostCall>,
 }
 
 type Side = Result<Box<Access>, String>;
@@ -119,7 +129,9 @@ impl SnapshotSource for Snapshot {
     }
 }
 
-fn trace(
+/// Run `func` once on a fresh deploy of `wasm` as the network does, recorded first and then
+/// enforced, and trace every host call of the enforced run.
+pub(super) fn trace(
     wasm: &[u8],
     iface: &spec::Interface,
     func: &str,
@@ -193,22 +205,14 @@ fn trace(
         });
     }
 
-    let calls = Rc::new(RefCell::new(BTreeMap::new()));
-    let seen = calls.clone();
+    let trace = Rc::new(RefCell::new(Vec::new()));
+    let seen = trace.clone();
     let hook: TraceHook = Rc::new(move |_, event| {
-        if let TraceEvent::EnvCall(name, args) = event
-            && STORAGE_CALLS.contains(&name)
-        {
-            // The storage class is the call's last argument, where it has one.
-            let class = args
-                .last()
-                .map(|a| format!("{a:?}").to_lowercase())
-                .filter(|c| matches!(c.as_str(), "instance" | "persistent" | "temporary"));
-            let label = match class {
-                Some(c) => format!("{name} {c}"),
-                None => name.to_string(),
-            };
-            *seen.borrow_mut().entry(label).or_insert(0) += 1;
+        if let TraceEvent::EnvCall(name, args) = event {
+            seen.borrow_mut().push(HostCall {
+                name,
+                args: args.iter().map(|a| format!("{a:?}")).collect(),
+            });
         }
         Ok(())
     });
@@ -251,7 +255,21 @@ fn trace(
         });
     }
 
-    let calls = calls.borrow().clone();
+    let trace = trace.borrow().clone();
+    let mut calls = BTreeMap::new();
+    for c in trace.iter().filter(|c| STORAGE_CALLS.contains(&c.name)) {
+        // The storage class is the call's last argument, where it has one.
+        let class = c
+            .args
+            .last()
+            .map(|a| a.to_lowercase())
+            .filter(|a| matches!(a.as_str(), "instance" | "persistent" | "temporary"));
+        let label = match class {
+            Some(class) => format!("{} {class}", c.name),
+            None => c.name.to_string(),
+        };
+        *calls.entry(label).or_insert(0) += 1;
+    }
     Ok(Access {
         result,
         read_only: footprint.read_only.len(),
@@ -259,6 +277,7 @@ fn trace(
         write_bytes: recorded.resources.write_bytes,
         writes,
         calls,
+        trace,
     })
 }
 
