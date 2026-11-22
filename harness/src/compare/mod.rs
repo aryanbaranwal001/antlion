@@ -2,6 +2,7 @@ use std::{fs, path::Path};
 
 use serde_json::{Map, Value, json};
 
+mod access;
 mod call;
 mod cost;
 mod events;
@@ -32,6 +33,7 @@ pub enum Report {
     Cost,
     Scaling,
     Ledger,
+    Access,
     Sequence,
     Events,
     Opcodes,
@@ -41,7 +43,7 @@ pub enum Report {
 
 impl Report {
     /// Every report, in the order `all` runs them.
-    pub const ALL: [Report; 13] = [
+    pub const ALL: [Report; 14] = [
         Report::Size,
         Report::Sections,
         Report::Imports,
@@ -50,6 +52,7 @@ impl Report {
         Report::Cost,
         Report::Scaling,
         Report::Ledger,
+        Report::Access,
         Report::Sequence,
         Report::Events,
         Report::Opcodes,
@@ -68,6 +71,7 @@ impl Report {
             Report::Cost => "cost",
             Report::Scaling => "scaling",
             Report::Ledger => "ledger",
+            Report::Access => "access",
             Report::Sequence => "sequence",
             Report::Events => "events",
             Report::Opcodes => "opcodes",
@@ -94,7 +98,7 @@ impl Report {
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
@@ -248,6 +252,13 @@ fn pair(name: &str, args: &cli::Compare, no_json: &mut Vec<String>) -> Result<Op
                 ledger::collect(&sdk, &solang),
                 |d| ledger::text(name, d),
                 ledger::json,
+                out,
+            ),
+            Report::Access => emit(
+                r.name(),
+                access::collect(&sdk, &solang),
+                |d| access::text(name, d),
+                access::json,
                 out,
             ),
             Report::Sequence => emit(
