@@ -87,7 +87,8 @@ BUNDLED CONTRACTS
 
     baseline   scalar_id   scalar_math   scalar_store   storage   flow
     struct_store   struct_mem   struct_id   struct_class   struct_vec
-    vec_mem   vec_id   mapping   location   slots   auth
+    vec_mem   vec_id   mapping   location   slots   auth   errors   events
+    numeric   bytes_id
 
 EXAMPLES
 
@@ -102,7 +103,7 @@ EXAMPLES
 NOTES
 
     --compare reads out/<name>/{sdk,solang}.wasm, so run --build first.
-    --detail and --dump apply to the opcodes report only.
+    --detail applies to the opcodes and cost reports, --dump to opcodes only.
     --json, --detail, --dump and --jobs <n> come after the report names, in any
     order. The results are the same for every --jobs value.
     With --json, --detail changes nothing: the opcodes JSON always lists every
