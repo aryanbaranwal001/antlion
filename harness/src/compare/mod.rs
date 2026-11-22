@@ -12,6 +12,7 @@ mod layout;
 mod ledger;
 mod opcodes;
 mod returns;
+mod scaling;
 mod section;
 mod sequence;
 mod size;
@@ -29,6 +30,7 @@ pub enum Report {
     Interface,
     Returns,
     Cost,
+    Scaling,
     Ledger,
     Sequence,
     Events,
@@ -39,13 +41,14 @@ pub enum Report {
 
 impl Report {
     /// Every report, in the order `all` runs them.
-    pub const ALL: [Report; 12] = [
+    pub const ALL: [Report; 13] = [
         Report::Size,
         Report::Sections,
         Report::Imports,
         Report::Interface,
         Report::Returns,
         Report::Cost,
+        Report::Scaling,
         Report::Ledger,
         Report::Sequence,
         Report::Events,
@@ -63,6 +66,7 @@ impl Report {
             Report::Interface => "interface",
             Report::Returns => "returns",
             Report::Cost => "cost",
+            Report::Scaling => "scaling",
             Report::Ledger => "ledger",
             Report::Sequence => "sequence",
             Report::Events => "events",
@@ -230,6 +234,13 @@ fn pair(name: &str, args: &cli::Compare, no_json: &mut Vec<String>) -> Result<Op
                 cost::collect(&sdk, &solang),
                 |d| cost::text(name, d, args.mode),
                 cost::json,
+                out,
+            ),
+            Report::Scaling => emit(
+                r.name(),
+                scaling::collect(&sdk, &solang),
+                |d| scaling::text(name, d),
+                scaling::json,
                 out,
             ),
             Report::Ledger => emit(

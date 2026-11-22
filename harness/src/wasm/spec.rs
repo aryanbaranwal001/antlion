@@ -232,6 +232,44 @@ pub fn build_args(
         .collect()
 }
 
+/// Whether any input can carry a size: a 32 or 64 bit integer, or a list.
+pub fn sizable(inputs: &[ScSpecTypeDef]) -> bool {
+    use ScSpecTypeDef as St;
+    inputs
+        .iter()
+        .any(|t| matches!(t, St::U32 | St::I32 | St::U64 | St::I64 | St::Vec(_)))
+}
+
+/// Arguments of size `n`: every 32 or 64 bit integer is `n`, and every list has `n`
+/// elements at `small`. Every other argument stays at `small`.
+pub fn build_sized(
+    host: &Host,
+    self_addr: Val,
+    iface: &Interface,
+    inputs: &[ScSpecTypeDef],
+    n: u32,
+) -> Result<Vec<Val>, HostError> {
+    use ScSpecTypeDef as St;
+    inputs
+        .iter()
+        .map(|t| {
+            Ok(match t {
+                St::U32 => Val::from_u32(n).to_val(),
+                St::I32 => Val::from_i32(n as i32).to_val(),
+                St::U64 => U64Val::from_u32(n).to_val(),
+                St::I64 => I64Val::from_i32(n as i32).to_val(),
+                St::Vec(v) => {
+                    let vals = (0..n)
+                        .map(|_| arg_val(host, self_addr, iface, &v.element_type, Inputs::Small))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    host.vec_new_from_slice(&vals)?.to_val()
+                }
+                _ => arg_val(host, self_addr, iface, t, Inputs::Small)?,
+            })
+        })
+        .collect()
+}
+
 /// Arguments at `small`, except the first struct argument, which is built wrong in the way
 /// `m` says. Only its top level is wrong; a nested struct inside it stays well formed.
 pub fn build_malformed(
