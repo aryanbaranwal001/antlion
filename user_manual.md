@@ -18,6 +18,7 @@ a contract pair, see the [README](README.md).
    - [cost](#cost)
    - [scaling](#scaling)
    - [ledger](#ledger)
+   - [access](#access)
    - [sequence](#sequence)
    - [events](#events)
    - [opcodes](#opcodes)
@@ -78,7 +79,7 @@ affects the `opcodes` and `cost` reports, and `--dump` only `opcodes`; see
 [opcodes](#opcodes) and [cost](#cost).
 
 `--jobs <n>` sets how many threads the reports that call contracts use: `returns`, `cost`,
-`scaling`, `ledger`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
+`scaling`, `ledger`, `access`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
 cores. More threads are faster and use more memory, and `--jobs 1` uses the least memory.
 The results are the same for every value. If the system cannot start the threads, antlion
 prints a warning and runs every call on one thread.
@@ -121,7 +122,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -144,7 +145,7 @@ CI. The numbers are the same as in the text reports.
 - Returned values and errors are strings, in full. The text cuts them to fit a column.
 - `returns` and `sequence` count the calls that disagreed in `disagreed`, and the calls
   that failed on both sides with different errors in `errors_differ`.
-- `returns`, `cost`, `scaling`, `ledger`, `sequence` and `events` have `no_spec`, true when
+- `returns`, `cost`, `scaling`, `ledger`, `access`, `sequence` and `events` have `no_spec`, true when
   the contract has no spec and nothing was called, and `skipped`, the functions whose
   argument types antlion cannot build. `scaling` also has `unsized`, the functions with no
   argument that can carry a size.
@@ -169,6 +170,7 @@ and the `cost` JSON always has every cost type.
 | [`cost`](#cost) | What does one call cost to run, and how much of it is the function itself? |
 | [`scaling`](#scaling) | How does the cost grow with the size of the input or the stored data? |
 | [`ledger`](#ledger) | Do both sides store the same data under the same keys? |
+| [`access`](#access) | Which ledger entries does each call touch, and how many storage calls does it make? |
 | [`sequence`](#sequence) | Do both sides agree when each call builds on the calls before it? |
 | [`events`](#events) | Do both sides emit the same events, and what does a failure say? |
 | [`opcodes`](#opcodes) | What kind of code does each side produce? |
@@ -325,6 +327,32 @@ Each function ends with one of:
 
 Numbers carry their type, such as `1u32` or `0i64`, so values of different types never look
 the same.
+
+### access
+
+Calls every function once on a fresh deploy, with `small` arguments, the way the network
+runs a transaction. First the call runs in recording mode, as a simulation does, which finds
+its footprint (the ledger entries it may read and write) and its authorizations. Then it
+runs again in enforcing mode with that footprint, and antlion records every storage host
+call it makes. An address argument is the transaction's source account, so its
+authorization needs no signature.
+
+The first table has one row per side:
+
+| Column | Means |
+|---|---|
+| `read` | ledger entries the call only reads, including the contract code and instance |
+| `write` | ledger entries the call writes |
+| `bytes` | the bytes it writes, which the network charges for |
+| `result` | what the call returned, or its error |
+
+Then, for each side:
+
+- `wrote` names each entry written and its size before and after, in bytes. Instance
+  storage is one entry, the contract instance, so a write to any instance key rewrites all
+  of it.
+- `called` counts each storage host call, such as `get_contract_data`, with its storage
+  class: `instance`, `persistent` or `temporary`.
 
 ### sequence
 
