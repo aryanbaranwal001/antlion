@@ -95,6 +95,8 @@ fn supported(iface: &Interface, t: &ScSpecTypeDef) -> bool {
             | St::Duration
             | St::U128
             | St::I128
+            | St::U256
+            | St::I256
             | St::Bytes
             | St::String
             | St::Symbol
@@ -441,6 +443,22 @@ fn arg_val(
         (St::I128, Large) => host.obj_from_i128_pieces(7, 5)?.to_val(),
         (St::I128, Bound) => host.obj_from_i128_pieces(0, u64::MAX)?.to_val(),
         (St::I128, Neg) => host.obj_from_i128_pieces(-1, 5)?.to_val(),
+
+        // 256 bit values in four 64 bit pieces, high first. `large` is 2^128, past
+        // every narrower integer.
+        (St::U256, Small) => host.obj_from_u256_pieces(0, 0, 0, 1)?.to_val(),
+        (St::U256, Large) => host.obj_from_u256_pieces(0, 1, 0, 0)?.to_val(),
+        (St::U256, Bound) => host
+            .obj_from_u256_pieces(u64::MAX, u64::MAX, u64::MAX, u64::MAX)?
+            .to_val(),
+        (St::U256, Neg) => host.obj_from_u256_pieces(0, 0, 0, 0)?.to_val(),
+
+        (St::I256, Small) => host.obj_from_i256_pieces(0, 0, 0, 1)?.to_val(),
+        (St::I256, Large) => host.obj_from_i256_pieces(0, 1, 0, 0)?.to_val(),
+        (St::I256, Bound) => host.obj_from_i256_pieces(i64::MIN, 0, 0, 0)?.to_val(),
+        (St::I256, Neg) => host
+            .obj_from_i256_pieces(-1, u64::MAX, u64::MAX, u64::MAX)?
+            .to_val(),
 
         (St::Bytes, Small) => host.bytes_new_from_slice(&[1, 2, 3, 4])?.to_val(),
         (St::Bytes, Large) => host.bytes_new_from_slice(&[0xff; 64])?.to_val(),
