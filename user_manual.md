@@ -20,6 +20,7 @@ a contract pair, see the [README](README.md).
    - [scaling](#scaling)
    - [ledger](#ledger)
    - [access](#access)
+   - [trace](#trace)
    - [sequence](#sequence)
    - [events](#events)
    - [opcodes](#opcodes)
@@ -80,7 +81,7 @@ affects the `opcodes` and `cost` reports, and `--dump` only `opcodes`; see
 [opcodes](#opcodes) and [cost](#cost).
 
 `--jobs <n>` sets how many threads the reports that call contracts use: `returns`, `cost`,
-`scaling`, `ledger`, `access`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
+`scaling`, `ledger`, `access`, `trace`, `sequence` and `events`. The default is 4, or fewer on a machine with fewer
 cores. More threads are faster and use more memory, and `--jobs 1` uses the least memory.
 The results are the same for every value. If the system cannot start the threads, antlion
 prints a warning and runs every call on one thread.
@@ -123,7 +124,7 @@ CI. The numbers are the same as in the text reports.
 
 ```json
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "antlion": "v0.1.1",
   "pairs": [
     {
@@ -146,7 +147,7 @@ CI. The numbers are the same as in the text reports.
 - Returned values and errors are strings, in full. The text cuts them to fit a column.
 - `returns` and `sequence` count the calls that disagreed in `disagreed`, and the calls
   that failed on both sides with different errors in `errors_differ`.
-- `returns`, `cost`, `scaling`, `ledger`, `access`, `sequence` and `events` have `no_spec`, true when
+- `returns`, `cost`, `scaling`, `ledger`, `access`, `trace`, `sequence` and `events` have `no_spec`, true when
   the contract has no spec and nothing was called, and `skipped`, the functions whose
   argument types antlion cannot build. `scaling` also has `unsized`, the functions with no
   argument that can carry a size.
@@ -173,6 +174,7 @@ and the `cost` JSON always has every cost type.
 | [`scaling`](#scaling) | How does the cost grow with the size of the input or the stored data? |
 | [`ledger`](#ledger) | Do both sides store the same data under the same keys? |
 | [`access`](#access) | Which ledger entries does each call touch, and how many storage calls does it make? |
+| [`trace`](#trace) | Which host functions does each call use, in which order, and with which arguments? |
 | [`sequence`](#sequence) | Do both sides agree when each call builds on the calls before it? |
 | [`events`](#events) | Do both sides emit the same events, and what does a failure say? |
 | [`opcodes`](#opcodes) | What kind of code does each side produce? |
@@ -373,6 +375,32 @@ Then, for each side:
   of it.
 - `called` counts each storage host call, such as `get_contract_data`, with its storage
   class: `instance`, `persistent` or `temporary`.
+
+### trace
+
+Every host call that each call makes, in order, with its arguments. The run is the one
+`access` makes: once in recording mode, then again in enforcing mode with a trace of every
+host call.
+
+For each function there are three parts:
+
+1. A table of each host function and how many times each side called it, with the total
+   and what the call returned.
+2. The two traces in order, lined up by host function name so that the longest run of
+   names that both share stays together. Each line starts with a mark:
+
+   | Mark | Means |
+   |---|---|
+   | `=` | the same host function with the same arguments on both sides |
+   | `~` | the same host function with other arguments; both lines are shown |
+   | `-` | a call only the sdk side makes |
+   | `+` | a call only the solang side makes |
+
+3. A last line, `trace: same`, or `trace: differs` with how many lines of each kind.
+
+An argument is shown as the host renders it, cut to 40 characters; the JSON has it in
+full. An object argument is a handle, such as `Vec(obj#3)`, so two equal objects can show
+different numbers.
 
 ### sequence
 
