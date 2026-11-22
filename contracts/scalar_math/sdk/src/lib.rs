@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl};
+use soroban_sdk::{I256, U256, contract, contractimpl};
 
 #[contract]
 pub struct ScalarMath;
@@ -36,5 +36,13 @@ impl ScalarMath {
 
     pub fn i128_op(a: i128, b: i128) -> i128 {
         a + b
+    }
+
+    pub fn u256_op(a: U256, b: U256) -> U256 {
+        a.add(&b)
+    }
+
+    pub fn i256_op(a: I256, b: I256) -> I256 {
+        a.add(&b)
     }
 }

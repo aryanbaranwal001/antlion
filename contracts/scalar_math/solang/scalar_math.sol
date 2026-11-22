@@ -35,4 +35,12 @@ contract Scalar_math {
     function i128_op(int128 a, int128 b) public pure returns (int128) {
         return a + b;
     }
+
+    function u256_op(uint256 a, uint256 b) public pure returns (uint256) {
+        return a + b;
+    }
+
+    function i256_op(int256 a, int256 b) public pure returns (int256) {
+        return a + b;
+    }
 }

@@ -1,6 +1,6 @@
 #![no_std]
 #![allow(unused_variables)]
-use soroban_sdk::{Address, contract, contractimpl};
+use soroban_sdk::{Address, I256, U256, contract, contractimpl};
 
 #[contract]
 pub struct ScalarId;
@@ -38,6 +38,14 @@ impl ScalarId {
         a
     }
 
+    pub fn u256_id(a: U256) -> U256 {
+        a
+    }
+
+    pub fn i256_id(a: I256) -> I256 {
+        a
+    }
+
     pub fn address_id(a: Address) -> Address {
         a
     }
@@ -67,6 +75,14 @@ impl ScalarId {
     }
 
     pub fn i128_id2(a: i128, b: i128) -> i128 {
+        a
+    }
+
+    pub fn u256_id2(a: U256, b: U256) -> U256 {
+        a
+    }
+
+    pub fn i256_id2(a: I256, b: I256) -> I256 {
         a
     }
 

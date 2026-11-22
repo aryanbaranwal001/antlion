@@ -35,6 +35,14 @@ contract Scalar_id {
         return a;
     }
 
+    function u256_id(uint256 a) public pure returns (uint256) {
+        return a;
+    }
+
+    function i256_id(int256 a) public pure returns (int256) {
+        return a;
+    }
+
     function address_id(address a) public pure returns (address) {
         return a;
     }
@@ -64,6 +72,14 @@ contract Scalar_id {
     }
 
     function i128_id2(int128 a, int128 b) public pure returns (int128) {
+        return a;
+    }
+
+    function u256_id2(uint256 a, uint256 b) public pure returns (uint256) {
+        return a;
+    }
+
+    function i256_id2(int256 a, int256 b) public pure returns (int256) {
         return a;
     }
 

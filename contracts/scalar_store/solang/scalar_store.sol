@@ -16,6 +16,8 @@ contract Scalar_store {
     int64 instance i64_v;
     uint128 instance u128_v;
     int128 instance i128_v;
+    uint256 instance u256_v;
+    int256 instance i256_v;
     address instance addr_v;
 
     function bool_store(bool a) public returns (bool) {
@@ -51,6 +53,16 @@ contract Scalar_store {
     function i128_store(int128 a) public returns (int128) {
         i128_v = a;
         return i128_v;
+    }
+
+    function u256_store(uint256 a) public returns (uint256) {
+        u256_v = a;
+        return u256_v;
+    }
+
+    function i256_store(int256 a) public returns (int256) {
+        i256_v = a;
+        return i256_v;
     }
 
     function address_store(address a) public returns (address) {

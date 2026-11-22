@@ -8,6 +8,8 @@ const U64: Symbol = symbol_short!("U64");
 const I64: Symbol = symbol_short!("I64");
 const U128: Symbol = symbol_short!("U128");
 const I128: Symbol = symbol_short!("I128");
+const U256: Symbol = symbol_short!("U256");
+const I256: Symbol = symbol_short!("I256");
 const ADDR: Symbol = symbol_short!("ADDR");
 
 #[contract]
@@ -53,6 +55,16 @@ impl ScalarStore {
     pub fn i128_store(env: Env, a: i128) -> i128 {
         env.storage().instance().set(&I128, &a);
         env.storage().instance().get(&I128).unwrap()
+    }
+
+    pub fn u256_store(env: Env, a: soroban_sdk::U256) -> soroban_sdk::U256 {
+        env.storage().instance().set(&U256, &a);
+        env.storage().instance().get(&U256).unwrap()
+    }
+
+    pub fn i256_store(env: Env, a: soroban_sdk::I256) -> soroban_sdk::I256 {
+        env.storage().instance().set(&I256, &a);
+        env.storage().instance().get(&I256).unwrap()
     }
 
     pub fn address_store(env: Env, a: Address) -> Address {
