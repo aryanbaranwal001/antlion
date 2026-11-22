@@ -11,6 +11,7 @@ mod imports;
 mod interface;
 mod layout;
 mod ledger;
+mod meta;
 mod opcodes;
 mod returns;
 mod scaling;
@@ -29,6 +30,7 @@ pub enum Report {
     Sections,
     Imports,
     Interface,
+    Meta,
     Returns,
     Cost,
     Scaling,
@@ -43,11 +45,12 @@ pub enum Report {
 
 impl Report {
     /// Every report, in the order `all` runs them.
-    pub const ALL: [Report; 14] = [
+    pub const ALL: [Report; 15] = [
         Report::Size,
         Report::Sections,
         Report::Imports,
         Report::Interface,
+        Report::Meta,
         Report::Returns,
         Report::Cost,
         Report::Scaling,
@@ -67,6 +70,7 @@ impl Report {
             Report::Sections => "sections",
             Report::Imports => "imports",
             Report::Interface => "interface",
+            Report::Meta => "meta",
             Report::Returns => "returns",
             Report::Cost => "cost",
             Report::Scaling => "scaling",
@@ -98,7 +102,7 @@ impl Report {
 const WIDTH: usize = 90;
 
 /// Bumped when the shape of the `--json` document changes.
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
 
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
@@ -224,6 +228,13 @@ fn pair(name: &str, args: &cli::Compare, no_json: &mut Vec<String>) -> Result<Op
                 interface::collect(&sdk, &solang),
                 |d| interface::text(d),
                 |d| interface::json(d),
+                out,
+            ),
+            Report::Meta => emit(
+                r.name(),
+                meta::collect(&sdk, &solang),
+                meta::text,
+                meta::json,
                 out,
             ),
             Report::Returns => emit(

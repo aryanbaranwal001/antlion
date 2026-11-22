@@ -17,6 +17,8 @@ pub struct Contract<'a> {
     pub interface: spec::Interface,
     /// What the VM allocates at instantiation.
     pub layout: Layout,
+    /// Every custom section's name and contents, in file order.
+    pub custom: Vec<(String, &'a [u8])>,
     /// Locally defined functions, in code-section order.
     functions: Vec<code::Function>,
 }
@@ -28,6 +30,7 @@ impl<'a> Contract<'a> {
         let mut imports = Vec::new();
         let mut layout = Layout::default();
         let mut spec_bytes: Option<&[u8]> = None;
+        let mut custom = Vec::new();
         let mut functions = Vec::new();
 
         // Imported function names in index order, so a call to import N can name
@@ -125,6 +128,7 @@ impl<'a> Contract<'a> {
                     if r.name() == "contractspecv0" && spec_bytes.is_none() {
                         spec_bytes = Some(r.data());
                     }
+                    custom.push((r.name().to_string(), r.data()));
                 }
                 _ => {}
             }
@@ -136,6 +140,7 @@ impl<'a> Contract<'a> {
             imports,
             interface: spec::parse(spec_bytes)?,
             layout,
+            custom,
             functions,
         })
     }
