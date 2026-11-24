@@ -5,6 +5,7 @@ mod app;
 mod catalog;
 mod command;
 mod runner;
+mod search;
 mod ui;
 
 use std::{

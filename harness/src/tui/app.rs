@@ -6,6 +6,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::catalog::Pair;
 use super::command::{self, Selection};
 use super::runner::Run;
+use super::search::Search;
 use crate::cli::Mode;
 use crate::compare::Report;
 
@@ -92,6 +93,20 @@ impl Pick {
     }
 }
 
+/// What a line of typed text is for.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Ask {
+    /// A search in the output.
+    Search,
+}
+
+/// A line the user types into, shown in place of the command line. It gets every key
+/// until `Enter` or `Esc`.
+pub struct Prompt {
+    pub ask: Ask,
+    pub text: String,
+}
+
 pub struct App {
     /// The pane that gets the keys.
     pub focus: Pane,
@@ -119,6 +134,10 @@ pub struct App {
     pub left: usize,
     /// The rows inside the output pane, as the last frame drew it.
     pub view_height: usize,
+    /// The line the user types into, while it is open.
+    pub prompt: Option<Prompt>,
+    /// The last search in the output.
+    pub search: Option<Search>,
     /// `q` was pressed while a run was active, and needs a second `q`.
     quit_asked: bool,
     /// The first `g` of `gg` was pressed.
@@ -143,6 +162,8 @@ impl Default for App {
             top: None,
             left: 0,
             view_height: 0,
+            prompt: None,
+            search: None,
             quit_asked: false,
             g: false,
         }
@@ -162,10 +183,60 @@ impl App {
         self.run.as_ref().is_some_and(Run::running)
     }
 
-    /// Take the new output of the run.
+    /// Take the new output of the run, and search it.
     pub fn tick(&mut self) {
         if let Some(r) = &mut self.run {
             r.poll();
+            if let Some(s) = &mut self.search {
+                s.update(&r.lines);
+            }
+        }
+    }
+
+    /// A key while the prompt is open: type, delete, confirm or give up.
+    fn prompt_key(&mut self, k: KeyEvent) {
+        let Some(p) = &mut self.prompt else { return };
+        match k.code {
+            KeyCode::Char(c) => p.text.push(c),
+            KeyCode::Backspace => {
+                p.text.pop();
+            }
+            KeyCode::Esc => self.prompt = None,
+            KeyCode::Enter => {
+                let p = self.prompt.take().expect("the prompt is open");
+                match p.ask {
+                    Ask::Search if p.text.is_empty() => self.search = None,
+                    Ask::Search => {
+                        let mut s = Search::new(p.text);
+                        if let Some(r) = &self.run {
+                            s.update(&r.lines);
+                        }
+                        // Start at the first match at or after the top line.
+                        let top = self.output_top();
+                        s.at = s.hits.iter().position(|&h| h >= top).unwrap_or(0);
+                        let line = s.hits.get(s.at).copied();
+                        self.search = Some(s);
+                        if let Some(l) = line {
+                            self.show_line(l);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Scroll so that line `l` is in the middle of the output pane.
+    fn show_line(&mut self, l: usize) {
+        let to = l.saturating_sub(self.view_height / 2);
+        self.top = Some(to);
+        self.scroll(0);
+    }
+
+    /// Move to the next match of the search, or the one before.
+    fn next_match(&mut self, step: isize) {
+        if let Some(l) = self.search.as_mut().and_then(|s| s.step(step)) {
+            self.show_line(l);
         }
     }
 
@@ -216,6 +287,14 @@ impl App {
             KeyCode::Char('l') | KeyCode::Right => self.left += 8,
             KeyCode::Char('h') | KeyCode::Left => self.left = self.left.saturating_sub(8),
             KeyCode::Char('0') => self.left = 0,
+            KeyCode::Char('/') => {
+                self.prompt = Some(Prompt {
+                    ask: Ask::Search,
+                    text: String::new(),
+                })
+            }
+            KeyCode::Char('n') => self.next_match(1),
+            KeyCode::Char('N') => self.next_match(-1),
             _ => return false,
         }
         true
@@ -293,6 +372,10 @@ impl App {
     }
 
     pub fn key(&mut self, k: KeyEvent) {
+        if self.prompt.is_some() {
+            self.prompt_key(k);
+            return;
+        }
         let g = std::mem::take(&mut self.g);
         let quit_asked = std::mem::take(&mut self.quit_asked);
         let list = match self.focus {
@@ -506,6 +589,37 @@ mod tests {
         let mut app = with_output(3, 10);
         keys(&mut app, "kggj");
         assert_eq!(app.output_top(), 0);
+    }
+
+    #[test]
+    fn search() {
+        let mut app = with_output(100, 10);
+        keys(&mut app, "/");
+        assert!(app.prompt.is_some());
+        // While the prompt is open, `q` and `j` are text, not keys.
+        keys(&mut app, "5qj");
+        press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        assert!(!app.quit);
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        let s = app.search.as_ref().unwrap();
+        // 5, 15, 25, ... 95, and 50 to 59: 19 lines.
+        assert_eq!(s.hits.len(), 19);
+        // The search starts at the first match at or after the top line, 90: the line
+        // "95", which is the last match. So `n` goes round to the first.
+        assert_eq!((s.at, s.hits[s.at]), (18, 94));
+        keys(&mut app, "n");
+        assert_eq!(app.search.as_ref().unwrap().at, 0);
+        assert_eq!(app.output_top(), 0);
+        keys(&mut app, "N");
+        assert_eq!(app.search.as_ref().unwrap().at, 18);
+        assert_eq!(app.output_top(), 89);
+
+        // `Esc` closes the prompt and keeps the old search.
+        keys(&mut app, "/x");
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert!(app.prompt.is_none());
+        assert_eq!(app.search.as_ref().unwrap().query, "5");
     }
 
     #[test]

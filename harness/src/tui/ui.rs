@@ -9,8 +9,9 @@ use ratatui::{
     widgets::{Block, List, ListItem, ListState, Paragraph},
 };
 
-use super::app::{App, OPTIONS, Pane, Pick};
+use super::app::{App, Ask, OPTIONS, Pane, Pick};
 use super::catalog::State;
+use super::search;
 use crate::compare::Report;
 
 /// The smallest screen the layout fits in.
@@ -83,12 +84,21 @@ pub fn draw(f: &mut Frame, app: &App) {
     f.render_stateful_widget(widget, options, &mut state);
     output_pane(f, app, output);
 
-    let args = app.selection().args();
-    let mut spans = vec![Span::raw(format!(" $ {}", super::command::line(&args)))];
-    if let Some(e) = super::command::refusal(&args) {
-        spans.push(Span::styled(format!("   {e}"), Style::new().fg(Color::Red)));
+    if let Some(p) = &app.prompt {
+        let label = match p.ask {
+            Ask::Search => "/",
+        };
+        f.render_widget(Paragraph::new(format!(" {label}{}", p.text)), command);
+        let x = command.x + 1 + (label.chars().count() + p.text.chars().count()) as u16;
+        f.set_cursor_position((x.min(command.right().saturating_sub(1)), command.y));
+    } else {
+        let args = app.selection().args();
+        let mut spans = vec![Span::raw(format!(" $ {}", super::command::line(&args)))];
+        if let Some(e) = super::command::refusal(&args) {
+            spans.push(Span::styled(format!("   {e}"), Style::new().fg(Color::Red)));
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)), command);
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), command);
     if let Some(s) = &app.status {
         f.render_widget(
             Paragraph::new(format!(" {s}")).style(Style::new().fg(Color::Yellow)),
@@ -116,20 +126,31 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
     let last = r.lines.len().saturating_sub(height);
     let top = app.top.map_or(last, |t| t.min(last));
     let end = (top + height).min(r.lines.len());
-    let shown = if end > top {
+    let mut shown = if end > top {
         format!(" lines {}-{} of {} ", top + 1, end, r.lines.len())
     } else {
         " no output ".to_string()
     };
+    if let Some(s) = &app.search {
+        let at = if s.hits.is_empty() { 0 } else { s.at + 1 };
+        shown = format!(" /{}  {at}/{} {shown}", s.query, s.hits.len());
+    }
     let block = block.title(Line::from(shown).right_aligned());
     let lines: Vec<Line> = r.lines[top..end]
         .iter()
         .map(|l| {
-            let style = if l.err {
+            let mut style = if l.err {
                 Style::new().fg(Color::Red)
             } else {
                 Style::new()
             };
+            if app
+                .search
+                .as_ref()
+                .is_some_and(|s| search::holds(&l.text, &s.query))
+            {
+                style = style.bg(Color::Yellow).fg(Color::Black);
+            }
             Line::styled(l.text.as_str(), style)
         })
         .collect();
@@ -179,7 +200,7 @@ fn hints(p: Pane) -> String {
     let own = match p {
         Pane::Pairs | Pane::Reports => "j/k move  Space select  a all  A none  ",
         Pane::Options => "j/k move  Space change  +/- jobs  ",
-        Pane::Output => "j/k scroll  ^D/^U page  gg/G top/end  h/l side  ",
+        Pane::Output => "j/k scroll  ^D/^U page  gg/G ends  h/l side  / search  n/N  ",
     };
     format!(" {own}Tab pane  r run  c cancel  q quit")
 }
