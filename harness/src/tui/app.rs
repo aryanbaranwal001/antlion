@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(app.focus, Pane::Reports);
         keys(&mut app, "jj ");
         assert_eq!(app.report_at_cursor(), Report::Imports);
-        assert_eq!(app.report_pick.on[2], true);
+        assert!(app.report_pick.on[2]);
         keys(&mut app, "G");
         assert_eq!(app.report_at_cursor(), Report::Layout);
         keys(&mut app, "a");
