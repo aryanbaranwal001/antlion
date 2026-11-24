@@ -175,6 +175,10 @@ pub enum Ask {
     Palette,
     /// The history of runs, in the palette box: the text filters the runs.
     History,
+    /// The presets, in the palette box: the text filters them.
+    Presets,
+    /// A name to save the selection as a preset under.
+    PresetName,
     /// A file name to save the output of the tab to.
     Save,
     /// Whether to write over the file the text names. `y` agrees.
@@ -203,6 +207,12 @@ pub enum Act {
     Report(usize),
     /// Open the history of runs.
     History,
+    /// Ask for a name, and save the selection as a preset.
+    SavePreset,
+    /// Open the presets.
+    Presets,
+    /// Load the preset with this index in the presets.
+    LoadPreset(usize),
     /// Load the selection of the run with this index in the history.
     Load(usize),
 }
@@ -261,6 +271,10 @@ pub struct App {
     pub state_dir: Option<std::path::PathBuf>,
     /// The runs in the history, the oldest first.
     pub history: Vec<super::store::Record>,
+    /// The folder of the config file; `None` keeps no presets.
+    pub config_dir: Option<std::path::PathBuf>,
+    /// The presets as they were read when the presets were last opened.
+    pub presets: Vec<(String, Vec<String>)>,
     /// Text to put in the clipboard, which the loop sends to the terminal after the draw.
     pub copy: Option<String>,
     /// `q` was pressed while a run was active, and needs a second `q`.
@@ -294,6 +308,8 @@ impl Default for App {
             copy: None,
             state_dir: None,
             history: Vec::new(),
+            config_dir: None,
+            presets: Vec::new(),
             quit_asked: false,
             g: false,
         }
@@ -363,6 +379,23 @@ impl App {
         self.history.push(r);
         let from = self.history.len().saturating_sub(super::store::MAX_HISTORY);
         self.history.drain(..from);
+    }
+
+    /// Save the selection as the preset `name` in the config file.
+    fn save_preset(&mut self, name: &str) {
+        let args = self.selection().args();
+        if let Some(e) = command::refusal(&args) {
+            self.status = Some(format!("not saved: {e}"));
+            return;
+        }
+        let Some(d) = &self.config_dir else {
+            self.status = Some("no config folder: set ANTLION_CONFIG_DIR or HOME".into());
+            return;
+        };
+        self.status = Some(match super::store::save_preset(d, name, &args) {
+            Ok(()) => format!("saved the preset {name}"),
+            Err(e) => e,
+        });
     }
 
     /// Set the lists and the options to what `args` selects. A pair that is not in the
@@ -454,7 +487,7 @@ impl App {
     /// A key while the prompt is open: type, delete, confirm or give up.
     fn prompt_key(&mut self, k: KeyEvent) {
         let Some(p) = &mut self.prompt else { return };
-        if matches!(p.ask, Ask::Palette | Ask::History) {
+        if matches!(p.ask, Ask::Palette | Ask::History | Ask::Presets) {
             self.palette_key(k);
             return;
         }
@@ -507,7 +540,9 @@ impl App {
                             t.show_line(l, h);
                         }
                     }
-                    Ask::Filter(_) | Ask::Palette | Ask::History => {}
+                    Ask::Filter(_) | Ask::Palette | Ask::History | Ask::Presets => {}
+                    Ask::PresetName if p.text.is_empty() => {}
+                    Ask::PresetName => self.save_preset(&p.text),
                     Ask::Save if p.text.is_empty() => {}
                     Ask::Save if std::path::Path::new(&p.text).exists() => {
                         self.prompt = Some(Prompt {
@@ -580,6 +615,8 @@ impl App {
             e("output: text or json", "", Act::Output),
             e("mode: totals, detail or dump", "", Act::Mode),
             e("history of runs", "H", Act::History),
+            e("save the selection as a preset", "", Act::SavePreset),
+            e("load a preset", "", Act::Presets),
             e("quit", "q", Act::Quit),
         ];
         for (i, p) in self.pairs.iter().enumerate() {
@@ -594,11 +631,19 @@ impl App {
     /// The entries that match the text of the palette, the best match first.
     pub fn palette_hits(&self) -> Vec<Entry> {
         let text = self.prompt.as_ref().map_or("", |p| p.text.as_str());
-        let history = self.prompt.as_ref().is_some_and(|p| p.ask == Ask::History);
-        let entries = if history {
-            self.history_entries()
-        } else {
-            self.entries()
+        let entries = match self.prompt.as_ref().map(|p| p.ask) {
+            Some(Ask::History) => self.history_entries(),
+            Some(Ask::Presets) => self
+                .presets
+                .iter()
+                .enumerate()
+                .map(|(i, (name, args))| Entry {
+                    label: format!("{name}   {}", command::line(args)),
+                    key: "",
+                    act: Act::LoadPreset(i),
+                })
+                .collect(),
+            _ => self.entries(),
         };
         let mut all: Vec<Option<Entry>> = entries.into_iter().map(Some).collect();
         let names: Vec<&str> = all.iter().flatten().map(|e| e.label.as_str()).collect();
@@ -709,6 +754,38 @@ impl App {
                     ask: Ask::History,
                     text: String::new(),
                 });
+            }
+            Act::SavePreset => {
+                self.prompt = Some(Prompt {
+                    ask: Ask::PresetName,
+                    text: String::new(),
+                })
+            }
+            Act::Presets => {
+                let Some(d) = &self.config_dir else {
+                    self.status = Some("no config folder: set ANTLION_CONFIG_DIR or HOME".into());
+                    return;
+                };
+                match super::store::presets(d) {
+                    Err(e) => self.status = Some(e),
+                    Ok(p) if p.is_empty() => {
+                        self.status = Some("no preset yet: save one from the palette".into())
+                    }
+                    Ok(p) => {
+                        self.presets = p;
+                        self.palette_cur = 0;
+                        self.prompt = Some(Prompt {
+                            ask: Ask::Presets,
+                            text: String::new(),
+                        });
+                    }
+                }
+            }
+            Act::LoadPreset(i) => {
+                if let Some((_, args)) = self.presets.get(i) {
+                    let args = args.clone();
+                    self.load(&args);
+                }
             }
             Act::Load(i) => {
                 if let Some(r) = self.history.get(i) {
@@ -1236,6 +1313,50 @@ mod tests {
                 .as_deref()
                 .is_some_and(|x| x.ends_with("not here: gone"))
         );
+    }
+
+    #[test]
+    fn presets() {
+        let d = super::super::catalog::tests::scratch("app-presets");
+        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
+        app.config_dir = Some(d.clone());
+        keys(&mut app, ":load a preset");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("no preset yet"))
+        );
+
+        // A selection the CLI refuses is not saved.
+        keys(&mut app, ":save the selection");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, "bad");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("not saved"))
+        );
+
+        keys(&mut app, "j 2jjjjjj ");
+        keys(&mut app, ":save the selection");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, "cost of numeric");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            app.status.as_deref(),
+            Some("saved the preset cost of numeric")
+        );
+
+        keys(&mut app, "1A2A");
+        assert_eq!(app.selection().pairs.len(), 0);
+        keys(&mut app, ":load a preset");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(app.palette_hits()[0].label.starts_with("cost of numeric"));
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.selection().pairs, ["numeric"]);
+        assert_eq!(app.selection().reports, [Report::Cost]);
     }
 
     #[test]

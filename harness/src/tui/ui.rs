@@ -91,6 +91,8 @@ pub fn draw(f: &mut Frame, app: &App) {
             Ask::Search | Ask::Filter(_) => "/",
             Ask::Palette => ":",
             Ask::History => "history: ",
+            Ask::Presets => "preset: ",
+            Ask::PresetName => "save the selection as the preset: ",
             Ask::Save => "save to: ",
             Ask::Overwrite => "file is there, y to write over it: ",
         };
@@ -122,7 +124,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app
         .prompt
         .as_ref()
-        .is_some_and(|p| matches!(p.ask, Ask::Palette | Ask::History))
+        .is_some_and(|p| matches!(p.ask, Ask::Palette | Ask::History | Ask::Presets))
     {
         palette(f, app);
     }
@@ -242,6 +244,7 @@ fn palette(f: &mut Frame, app: &App) {
     let block = Block::bordered()
         .title(match &app.prompt {
             Some(p) if p.ask == Ask::History => format!(" history: {} ", p.text),
+            Some(p) if p.ask == Ask::Presets => format!(" presets: {} ", p.text),
             p => format!(" : {} ", p.as_ref().map_or("", |p| p.text.as_str())),
         })
         .title_bottom(Line::from(" Enter do  Up/Down move  Esc close ").right_aligned())

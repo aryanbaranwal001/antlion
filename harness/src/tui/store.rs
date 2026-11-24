@@ -1,4 +1,5 @@
-//! What the UI keeps between runs: the history of runs.
+//! What the UI keeps between runs: the history of runs, and the presets in the config
+//! file.
 
 use std::{
     fs,
@@ -7,6 +8,7 @@ use std::{
 };
 
 use serde_json::{Value, json};
+use toml_edit::{Array, DocumentMut, Item, Table};
 
 /// The most runs the history keeps. A new run past this drops the oldest.
 pub const MAX_HISTORY: usize = 200;
@@ -15,6 +17,12 @@ pub const MAX_HISTORY: usize = 200;
 /// `$XDG_STATE_HOME/antlion`, else `~/.local/state/antlion`. `None` when none is known.
 pub fn state_dir() -> Option<PathBuf> {
     dir("XDG_STATE_HOME", ".local/state")
+}
+
+/// The folder for the config file: `ANTLION_CONFIG_DIR` when it is set, else
+/// `$XDG_CONFIG_HOME/antlion`, else `~/.config/antlion`.
+pub fn config_dir() -> Option<PathBuf> {
+    dir("XDG_CONFIG_HOME", ".config")
 }
 
 fn dir(xdg: &str, home: &str) -> Option<PathBuf> {
@@ -103,6 +111,59 @@ pub fn add(dir: &Path, r: &Record) -> std::io::Result<()> {
     fs::write(history_file(dir), text)
 }
 
+fn config_file(dir: &Path) -> PathBuf {
+    dir.join("config.toml")
+}
+
+/// The config file of `dir`, or an empty one when there is none.
+fn config(dir: &Path) -> Result<DocumentMut, String> {
+    let path = config_file(dir);
+    match fs::read_to_string(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(DocumentMut::new()),
+        Err(e) => Err(format!("cannot read {}: {e}", path.display())),
+        Ok(text) => text
+            .parse::<DocumentMut>()
+            .map_err(|e| format!("{}: {}", path.display(), e.to_string().trim())),
+    }
+}
+
+/// Every preset in the config file of `dir`: its name and its arguments, in file order.
+/// A preset whose `args` is not a list of strings is an error.
+pub fn presets(dir: &Path) -> Result<Vec<(String, Vec<String>)>, String> {
+    let doc = config(dir)?;
+    let Some(table) = doc.get("presets").and_then(Item::as_table) else {
+        return Ok(Vec::new());
+    };
+    table
+        .iter()
+        .map(|(name, item)| {
+            let args = item
+                .get("args")
+                .and_then(Item::as_array)
+                .and_then(|a| a.iter().map(|v| v.as_str().map(str::to_string)).collect())
+                .ok_or_else(|| format!("preset `{name}` needs args = [\"--compare\", ...]"))?;
+            Ok((name.to_string(), args))
+        })
+        .collect()
+}
+
+/// Save `args` as the preset `name` in the config file of `dir`. Every other line of the
+/// file, comments too, stays as it was.
+pub fn save_preset(dir: &Path, name: &str, args: &[String]) -> Result<(), String> {
+    let mut doc = config(dir)?;
+    if !doc.contains_key("presets") {
+        let mut t = Table::new();
+        t.set_implicit(true);
+        doc["presets"] = Item::Table(t);
+    }
+    let mut preset = Table::new();
+    preset["args"] = toml_edit::value(args.iter().map(String::as_str).collect::<Array>());
+    doc["presets"][name] = Item::Table(preset);
+    fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
+    let path = config_file(dir);
+    fs::write(&path, doc.to_string()).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
 /// How long ago `time` was, in one short word: `12 s`, `5 min`, `3 h` or `2 d`.
 pub fn ago(time: u64) -> String {
     let s = now().saturating_sub(time);
@@ -145,6 +206,41 @@ mod tests {
         let h = history(&d);
         assert_eq!(h.len(), MAX_HISTORY);
         assert_eq!(h[0].args, ["5"]);
+    }
+
+    #[test]
+    fn presets_keep_the_rest_of_the_file() {
+        let d = scratch("presets");
+        assert_eq!(presets(&d).unwrap(), []);
+        let args: Vec<String> = ["--compare", "numeric", "--report", "cost"]
+            .map(String::from)
+            .to_vec();
+        save_preset(&d, "cost of numeric pairs", &args).unwrap();
+        assert_eq!(
+            presets(&d).unwrap(),
+            [("cost of numeric pairs".to_string(), args.clone())]
+        );
+
+        // A comment and another key stay; saving a name again replaces it.
+        let path = config_file(&d);
+        let text = fs::read_to_string(&path).unwrap();
+        fs::write(&path, format!("# my comment\njobs = 2\n\n{text}")).unwrap();
+        save_preset(&d, "flow", &args[..2]).unwrap();
+        save_preset(&d, "flow", &args).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# my comment\njobs = 2\n"));
+        assert_eq!(presets(&d).unwrap().len(), 2);
+        assert_eq!(presets(&d).unwrap()[1].1, args);
+    }
+
+    #[test]
+    fn bad_config() {
+        let d = scratch("bad-config");
+        fs::write(config_file(&d), "[presets.x]\nargs = 3\n").unwrap();
+        assert!(presets(&d).unwrap_err().contains("preset `x` needs args"));
+        fs::write(config_file(&d), "this is not toml").unwrap();
+        assert!(presets(&d).unwrap_err().contains("config.toml"));
+        assert!(save_preset(&d, "y", &[]).is_err());
     }
 
     #[test]

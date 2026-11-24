@@ -39,6 +39,7 @@ pub fn run() -> Result<()> {
     let mut app = App::new(catalog::pairs(&dir));
     app.root = dir.clone();
     app.state_dir = store::state_dir();
+    app.config_dir = store::config_dir();
     if let Some(d) = &app.state_dir {
         app.history = store::history(d);
     }
