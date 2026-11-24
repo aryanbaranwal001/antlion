@@ -5,6 +5,7 @@ USAGE
 
     antlion --build <contract>...
     antlion --compare <name>... --report <report>... [--json] [--detail | --dump] [--jobs <n>]
+    antlion --interactive
     antlion --help
     antlion --version
 
@@ -12,6 +13,8 @@ COMMANDS
 
     --build <contract>... compile each <contract>/{sdk,solang} into out/<name>/
     --compare <name>...   diff both builds of each contract, in the order given
+    --interactive         open a terminal UI to pick pairs, reports and options, run
+                          them, and search the output; press ? in it for every key
     --help                print this help
     --version             print the version
 
