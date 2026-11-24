@@ -3,8 +3,31 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+/// One box on the screen.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum Pane {
+    #[default]
+    Pairs,
+    Reports,
+    Options,
+    Output,
+}
+
+impl Pane {
+    pub fn title(self) -> &'static str {
+        match self {
+            Pane::Pairs => "Pairs",
+            Pane::Reports => "Reports",
+            Pane::Options => "Options",
+            Pane::Output => "Output",
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct App {
+    /// The pane that gets the keys.
+    pub focus: Pane,
     /// The loop stops at the end of this pass.
     pub quit: bool,
     /// One line for the status bar, such as a warning at start.
