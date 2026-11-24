@@ -90,6 +90,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         let label = match p.ask {
             Ask::Search | Ask::Filter(_) => "/",
             Ask::Palette => ":",
+            Ask::History => "history: ",
             Ask::Save => "save to: ",
             Ask::Overwrite => "file is there, y to write over it: ",
         };
@@ -118,7 +119,11 @@ pub fn draw(f: &mut Frame, app: &App) {
             .style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
-    if app.prompt.as_ref().is_some_and(|p| p.ask == Ask::Palette) {
+    if app
+        .prompt
+        .as_ref()
+        .is_some_and(|p| matches!(p.ask, Ask::Palette | Ask::History))
+    {
         palette(f, app);
     }
     if let Some(top) = app.help {
@@ -137,6 +142,7 @@ EVERYWHERE
     1 2 3 4          pairs, reports, options, output
     r                run the command
     y                copy the command
+    H                history of runs; Enter loads one, then r runs it
     b                build the selected pairs
     c                cancel the run
     :                command palette
@@ -234,10 +240,10 @@ fn palette(f: &mut Frame, app: &App) {
         })
         .collect();
     let block = Block::bordered()
-        .title(format!(
-            " : {} ",
-            app.prompt.as_ref().map_or("", |p| p.text.as_str())
-        ))
+        .title(match &app.prompt {
+            Some(p) if p.ask == Ask::History => format!(" history: {} ", p.text),
+            p => format!(" : {} ", p.as_ref().map_or("", |p| p.text.as_str())),
+        })
         .title_bottom(Line::from(" Enter do  Up/Down move  Esc close ").right_aligned())
         .border_style(Style::new().fg(Color::Cyan));
     let widget = List::new(rows)

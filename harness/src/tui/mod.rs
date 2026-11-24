@@ -6,6 +6,7 @@ mod catalog;
 mod command;
 mod runner;
 mod search;
+mod store;
 mod ui;
 
 use std::{
@@ -37,6 +38,10 @@ pub fn run() -> Result<()> {
         .map_err(|e| Error::failed(format!("cannot read the working directory: {e}")))?;
     let mut app = App::new(catalog::pairs(&dir));
     app.root = dir.clone();
+    app.state_dir = store::state_dir();
+    if let Some(d) = &app.state_dir {
+        app.history = store::history(d);
+    }
     // A run is antlion itself again, so the command shown is the command that runs.
     app.program = std::env::current_exe()
         .map_err(|e| Error::failed(format!("cannot find the antlion binary: {e}")))?

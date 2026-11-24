@@ -173,6 +173,8 @@ pub enum Ask {
     Filter(Pane),
     /// The command palette: the text filters the actions.
     Palette,
+    /// The history of runs, in the palette box: the text filters the runs.
+    History,
     /// A file name to save the output of the tab to.
     Save,
     /// Whether to write over the file the text names. `y` agrees.
@@ -199,6 +201,10 @@ pub enum Act {
     Pair(usize),
     /// Select or clear the report with this index in `Report::ALL`.
     Report(usize),
+    /// Open the history of runs.
+    History,
+    /// Load the selection of the run with this index in the history.
+    Load(usize),
 }
 
 /// One entry of the command palette: what it says, its key, and what it does.
@@ -251,6 +257,10 @@ pub struct App {
     /// The help for one item, while it is open: its title, its lines and the first line
     /// shown.
     pub info: Option<(String, Vec<String>, usize)>,
+    /// The folder of the history file; `None` keeps no history.
+    pub state_dir: Option<std::path::PathBuf>,
+    /// The runs in the history, the oldest first.
+    pub history: Vec<super::store::Record>,
     /// Text to put in the clipboard, which the loop sends to the terminal after the draw.
     pub copy: Option<String>,
     /// `q` was pressed while a run was active, and needs a second `q`.
@@ -282,6 +292,8 @@ impl Default for App {
             help: None,
             info: None,
             copy: None,
+            state_dir: None,
+            history: Vec::new(),
             quit_asked: false,
             g: false,
         }
@@ -314,10 +326,21 @@ impl App {
     /// state of the pairs again.
     pub fn tick(&mut self) {
         let mut built = false;
+        let mut ended = Vec::new();
         for t in &mut self.tabs {
             let was = t.run.running();
             t.run.poll();
             built |= t.build && was && !t.run.running();
+            if !t.build && was {
+                if let Some((end, time)) = t.run.end {
+                    let exit = match end {
+                        super::runner::End::Exited(c) => c,
+                        super::runner::End::Cancelled => None,
+                    };
+                    let r = super::store::Record::new(t.run.args.clone(), exit, time.as_secs_f64());
+                    ended.push(r);
+                }
+            }
             if let Some(s) = &mut t.search {
                 s.update(&t.run.lines);
             }
@@ -325,6 +348,50 @@ impl App {
         if built {
             self.reload();
         }
+        for r in ended {
+            self.remember(r);
+        }
+    }
+
+    /// Add a run to the history, in memory and in its file.
+    fn remember(&mut self, r: super::store::Record) {
+        if let Some(d) = &self.state_dir
+            && let Err(e) = super::store::add(d, &r)
+        {
+            self.status = Some(format!("cannot write the history in {}: {e}", d.display()));
+        }
+        self.history.push(r);
+        let from = self.history.len().saturating_sub(super::store::MAX_HISTORY);
+        self.history.drain(..from);
+    }
+
+    /// Set the lists and the options to what `args` selects. A pair that is not in the
+    /// list is left out, and the status says so.
+    fn load(&mut self, args: &[String]) {
+        let Ok(crate::cli::Command::Compare(c)) = crate::cli::parse(args) else {
+            self.status = Some(format!("cannot load: {}", command::line(args)));
+            return;
+        };
+        self.pair_pick.on.fill(false);
+        let mut missing = Vec::new();
+        for name in &c.names {
+            match self.pairs.iter().position(|p| &p.name == name) {
+                Some(i) => self.pair_pick.on[i] = true,
+                None => missing.push(name.as_str()),
+            }
+        }
+        for (i, r) in Report::ALL.iter().enumerate() {
+            self.report_pick.on[i] = c.reports.contains(r);
+        }
+        (self.json, self.mode, self.jobs) = (c.json, c.mode, c.jobs);
+        self.status = Some(if missing.is_empty() {
+            "loaded: press r to run it".to_string()
+        } else {
+            format!(
+                "loaded, without the pairs that are not here: {}",
+                missing.join(", ")
+            )
+        });
     }
 
     /// Read the pairs again, and keep the selection and the cursor on the same names.
@@ -387,7 +454,7 @@ impl App {
     /// A key while the prompt is open: type, delete, confirm or give up.
     fn prompt_key(&mut self, k: KeyEvent) {
         let Some(p) = &mut self.prompt else { return };
-        if p.ask == Ask::Palette {
+        if matches!(p.ask, Ask::Palette | Ask::History) {
             self.palette_key(k);
             return;
         }
@@ -440,7 +507,7 @@ impl App {
                             t.show_line(l, h);
                         }
                     }
-                    Ask::Filter(_) | Ask::Palette => {}
+                    Ask::Filter(_) | Ask::Palette | Ask::History => {}
                     Ask::Save if p.text.is_empty() => {}
                     Ask::Save if std::path::Path::new(&p.text).exists() => {
                         self.prompt = Some(Prompt {
@@ -512,6 +579,7 @@ impl App {
             e("clear every report", "A", Act::NoReports),
             e("output: text or json", "", Act::Output),
             e("mode: totals, detail or dump", "", Act::Mode),
+            e("history of runs", "H", Act::History),
             e("quit", "q", Act::Quit),
         ];
         for (i, p) in self.pairs.iter().enumerate() {
@@ -526,10 +594,42 @@ impl App {
     /// The entries that match the text of the palette, the best match first.
     pub fn palette_hits(&self) -> Vec<Entry> {
         let text = self.prompt.as_ref().map_or("", |p| p.text.as_str());
-        let mut all: Vec<Option<Entry>> = self.entries().into_iter().map(Some).collect();
+        let history = self.prompt.as_ref().is_some_and(|p| p.ask == Ask::History);
+        let entries = if history {
+            self.history_entries()
+        } else {
+            self.entries()
+        };
+        let mut all: Vec<Option<Entry>> = entries.into_iter().map(Some).collect();
         let names: Vec<&str> = all.iter().flatten().map(|e| e.label.as_str()).collect();
         let order = super::search::ranked(text, &names);
         order.into_iter().filter_map(|i| all[i].take()).collect()
+    }
+
+    /// The runs of the history as palette entries, the newest first.
+    fn history_entries(&self) -> Vec<Entry> {
+        self.history
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, r)| {
+                let end = match r.exit {
+                    Some(0) => "done".to_string(),
+                    Some(c) => format!("exit {c}"),
+                    None => "cancelled".to_string(),
+                };
+                Entry {
+                    label: format!(
+                        "{}   {end}, {:.1} s, {} ago",
+                        command::line(&r.args),
+                        r.secs,
+                        super::store::ago(r.time)
+                    ),
+                    key: "",
+                    act: Act::Load(i),
+                }
+            })
+            .collect()
     }
 
     /// A key while the palette is open.
@@ -603,6 +703,19 @@ impl App {
             }
             Act::Pair(i) => self.pair_pick.on[i] = !self.pair_pick.on[i],
             Act::Report(i) => self.report_pick.on[i] = !self.report_pick.on[i],
+            Act::History => {
+                self.palette_cur = 0;
+                self.prompt = Some(Prompt {
+                    ask: Ask::History,
+                    text: String::new(),
+                });
+            }
+            Act::Load(i) => {
+                if let Some(r) = self.history.get(i) {
+                    let args = r.args.clone();
+                    self.load(&args);
+                }
+            }
         }
     }
 
@@ -870,6 +983,7 @@ impl App {
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
             KeyCode::Char('?') => self.help = Some(0),
             KeyCode::Char('y') => self.act(Act::Copy),
+            KeyCode::Char('H') => self.act(Act::History),
             KeyCode::Char('K') => self.info = self.info_at_cursor(),
             KeyCode::Char(':') => {
                 self.palette_cur = 0;
@@ -1066,6 +1180,61 @@ mod tests {
             app.status
                 .as_deref()
                 .is_some_and(|s| s.starts_with("copied: "))
+        );
+    }
+
+    #[test]
+    fn history() {
+        let d = super::super::catalog::tests::scratch("app-history");
+        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
+        app.state_dir = Some(d.clone());
+        app.program = "sh".to_string();
+
+        // A run that ends goes into the history, in memory and in the file.
+        let args: Vec<String> = ["-c", "true"].map(String::from).to_vec();
+        app.add_tab(Run::start("sh", args.clone(), Path::new(".")).unwrap());
+        let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.running() && std::time::Instant::now() < stop {
+            app.tick();
+        }
+        app.tick();
+        assert_eq!(app.history.len(), 1);
+        assert_eq!(app.history[0].args, args);
+        assert_eq!(app.history[0].exit, Some(0));
+        assert_eq!(super::super::store::history(&d).len(), 1);
+
+        // Loading a run sets the lists and the options, and leaves out unknown pairs.
+        app.history.push(super::super::store::Record::new(
+            [
+                "--compare",
+                "numeric",
+                "gone",
+                "--report",
+                "cost",
+                "--json",
+                "--jobs",
+                "2",
+            ]
+            .map(String::from)
+            .to_vec(),
+            Some(0),
+            1.0,
+        ));
+        keys(&mut app, "H");
+        assert!(
+            app.palette_hits()[0]
+                .label
+                .starts_with("antlion --compare numeric gone")
+        );
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        let s = app.selection();
+        assert_eq!(s.pairs, ["numeric"]);
+        assert_eq!(s.reports, [Report::Cost]);
+        assert_eq!((s.json, s.jobs), (true, Some(2)));
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|x| x.ends_with("not here: gone"))
         );
     }
 
