@@ -11,6 +11,7 @@ use ratatui::{
 
 use super::app::{App, Pane, Pick};
 use super::catalog::State;
+use crate::compare::Report;
 
 /// The smallest screen the layout fits in.
 const MIN_W: u16 = 60;
@@ -59,8 +60,19 @@ pub fn draw(f: &mut Frame, app: &App) {
             Span::styled(format!(" {}", p.state.label()), Style::new().fg(color)),
         ]
     });
-    list(f, app, Pane::Pairs, pairs, &app.pair_pick, rows);
-    pane(f, app, Pane::Reports, reports);
+    list(f, app, Pane::Pairs, pairs, &app.pair_pick, rows, None);
+
+    let rows = Report::ALL.iter().map(|r| vec![Span::raw(r.name())]);
+    let about = Line::from(format!(" {} ", app.report_at_cursor().about()));
+    list(
+        f,
+        app,
+        Pane::Reports,
+        reports,
+        &app.report_pick,
+        rows,
+        Some(about),
+    );
     pane(f, app, Pane::Options, options);
     pane(f, app, Pane::Output, output);
 
@@ -81,14 +93,14 @@ pub fn draw(f: &mut Frame, app: &App) {
 /// The keys of the pane that has the focus, then the keys that work everywhere.
 fn hints(p: Pane) -> String {
     let own = match p {
-        Pane::Pairs => "j/k move  Space select  a all  A none  ",
-        Pane::Reports | Pane::Options | Pane::Output => "",
+        Pane::Pairs | Pane::Reports => "j/k move  Space select  a all  A none  ",
+        Pane::Options | Pane::Output => "",
     };
     format!(" {own}Tab pane  1-4 jump  q quit")
 }
 
 /// A pane that is a list: each row with its box, the count in the title, the cursor in
-/// reverse when the pane has the focus.
+/// reverse when the pane has the focus, and `bottom` on the lower border.
 fn list<'a>(
     f: &mut Frame,
     app: &App,
@@ -96,6 +108,7 @@ fn list<'a>(
     area: Rect,
     pick: &Pick,
     rows: impl Iterator<Item = Vec<Span<'a>>>,
+    bottom: Option<Line<'a>>,
 ) {
     let items: Vec<ListItem> = rows
         .zip(&pick.on)
@@ -110,9 +123,11 @@ fn list<'a>(
     } else {
         Style::new()
     };
-    let widget = List::new(items)
-        .block(frame(app, p).title(title))
-        .highlight_style(cursor);
+    let mut block = frame(app, p).title(title);
+    if let Some(b) = bottom {
+        block = block.title_bottom(b);
+    }
+    let widget = List::new(items).block(block).highlight_style(cursor);
     let mut state = ListState::default().with_selected(Some(pick.cur));
     f.render_stateful_widget(widget, area, &mut state);
 }
@@ -151,7 +166,7 @@ pub(super) mod tests {
     #[test]
     fn layout_fits_80_by_24() {
         let s = screen(&App::default(), 80, 24);
-        for title in ["Pairs (0/0)", "Reports", "Options", "Output"] {
+        for title in ["Pairs (0/0)", "Reports (0/17)", "Options", "Output"] {
             assert_eq!(
                 s.iter()
                     .filter(|r| r.contains(&format!(" {title} ")))
@@ -179,6 +194,19 @@ pub(super) mod tests {
         assert!(s[0].contains(" Pairs (1/2) "));
         assert!(s[1].contains("[ ] flow built"));
         assert!(s[2].contains("[x] ttl  stale"));
+    }
+
+    #[test]
+    fn reports_pane() {
+        let mut app = App::default();
+        app.report_pick.on[0] = true;
+        app.report_pick.cur = 6;
+        let s = screen(&app, 100, 30);
+        assert!(s[0].contains(" Reports (1/17) "));
+        assert!(s[1].contains("[x] size"));
+        assert!(s[2].contains("[ ] sections"));
+        // The description of `cost`, the report under the cursor, on the lower border.
+        assert!(s.iter().any(|r| r.contains(" metered cost of calling")));
     }
 
     #[test]

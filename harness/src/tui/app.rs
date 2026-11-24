@@ -4,6 +4,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::catalog::Pair;
+use crate::compare::Report;
 
 /// One box on the screen.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -82,7 +83,6 @@ impl Pick {
     }
 }
 
-#[derive(Default)]
 pub struct App {
     /// The pane that gets the keys.
     pub focus: Pane,
@@ -92,8 +92,24 @@ pub struct App {
     pub status: Option<String>,
     pub pairs: Vec<Pair>,
     pub pair_pick: Pick,
+    /// One item for each report, in `Report::ALL` order.
+    pub report_pick: Pick,
     /// The first `g` of `gg` was pressed.
     g: bool,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        App {
+            focus: Pane::default(),
+            quit: false,
+            status: None,
+            pairs: Vec::new(),
+            pair_pick: Pick::default(),
+            report_pick: Pick::new(Report::ALL.len()),
+            g: false,
+        }
+    }
 }
 
 impl App {
@@ -105,10 +121,16 @@ impl App {
         }
     }
 
+    /// The report under the cursor of the reports pane.
+    pub fn report_at_cursor(&self) -> Report {
+        Report::ALL[self.report_pick.cur]
+    }
+
     pub fn key(&mut self, k: KeyEvent) {
         let g = std::mem::take(&mut self.g);
         let list = match self.focus {
             Pane::Pairs => Some(&mut self.pair_pick),
+            Pane::Reports => Some(&mut self.report_pick),
             _ => None,
         };
         if let Some(list) = list {
@@ -179,6 +201,22 @@ mod tests {
         let mut app = App::new(Vec::new());
         keys(&mut app, "jkG gg aA");
         assert_eq!(app.pair_pick.cur, 0);
+    }
+
+    #[test]
+    fn reports_list() {
+        let mut app = App::default();
+        keys(&mut app, "2");
+        assert_eq!(app.focus, Pane::Reports);
+        keys(&mut app, "jj ");
+        assert_eq!(app.report_at_cursor(), Report::Imports);
+        assert_eq!(app.report_pick.on[2], true);
+        keys(&mut app, "G");
+        assert_eq!(app.report_at_cursor(), Report::Layout);
+        keys(&mut app, "a");
+        assert_eq!(app.report_pick.count(), Report::ALL.len());
+        // The pairs keep their own cursor and selection.
+        assert_eq!(app.pair_pick.count(), 0);
     }
 
     #[test]
