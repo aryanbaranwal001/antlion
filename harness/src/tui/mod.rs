@@ -31,10 +31,10 @@ pub fn run() -> Result<()> {
         ));
     }
 
-    let mut app = App::default();
-    if let Ok(dir) = std::env::current_dir() {
-        app.status = catalog::root_warning(&dir);
-    }
+    let dir = std::env::current_dir()
+        .map_err(|e| Error::failed(format!("cannot read the working directory: {e}")))?;
+    let mut app = App::new(catalog::pairs(&dir));
+    app.status = catalog::root_warning(&dir);
 
     // `init` also puts the terminal back when a panic happens, so the shell stays usable.
     let mut terminal = ratatui::init();
