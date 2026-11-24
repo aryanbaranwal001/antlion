@@ -8,6 +8,8 @@ pub enum Command {
     /// One or more pair paths, in the order given.
     Build(Vec<String>),
     Compare(Compare),
+    /// The terminal UI, which picks and runs the other commands.
+    Interactive,
 }
 
 pub struct Compare {
@@ -31,7 +33,7 @@ pub enum Mode {
 
 /// Read the arguments, without the program name.
 pub fn parse(args: &[String]) -> Result<Command> {
-    let usage = "usage: --build <contract>... | --compare <contract>... --report <report>... | --help | --version";
+    let usage = "usage: --build <contract>... | --compare <contract>... --report <report>... | --interactive | --help | --version";
     let (cmd, rest) = args.split_first().ok_or_else(|| Error::usage(usage))?;
 
     match cmd.as_str() {
@@ -43,6 +45,8 @@ pub fn parse(args: &[String]) -> Result<Command> {
         }
         "--build" => Ok(Command::Build(rest.to_vec())),
         "--compare" => compare(rest).map(Command::Compare),
+        "--interactive" if rest.is_empty() => Ok(Command::Interactive),
+        "--interactive" => Err(Error::usage("--interactive takes no other arguments")),
         _ => Err(Error::usage(usage)),
     }
 }
@@ -163,6 +167,16 @@ mod tests {
     #[test]
     fn version() {
         assert!(matches!(parse_str("--version"), Ok(Command::Version)));
+    }
+
+    #[test]
+    fn interactive() {
+        assert!(matches!(
+            parse_str("--interactive"),
+            Ok(Command::Interactive)
+        ));
+        assert!(is_usage("--interactive --json"));
+        assert!(is_usage("--interactive flow"));
     }
 
     #[test]
