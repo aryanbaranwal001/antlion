@@ -4,6 +4,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::catalog::Pair;
+use super::command::Selection;
 use crate::cli::Mode;
 use crate::compare::Report;
 
@@ -176,6 +177,32 @@ impl App {
             mode.to_string(),
             self.jobs.map_or("auto".to_string(), |n| n.to_string()),
         ]
+    }
+
+    /// What the lists and the options have selected: pairs in list order, reports in
+    /// `Report::ALL` order.
+    pub fn selection(&self) -> Selection {
+        let picked = |pick: &Pick| {
+            pick.on
+                .iter()
+                .enumerate()
+                .filter(|(_, on)| **on)
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>()
+        };
+        Selection {
+            pairs: picked(&self.pair_pick)
+                .into_iter()
+                .map(|i| self.pairs[i].name.clone())
+                .collect(),
+            reports: picked(&self.report_pick)
+                .into_iter()
+                .map(|i| Report::ALL[i])
+                .collect(),
+            json: self.json,
+            mode: self.mode,
+            jobs: self.jobs,
+        }
     }
 
     /// The report under the cursor of the reports pane.

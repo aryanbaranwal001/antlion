@@ -90,7 +90,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     f.render_stateful_widget(widget, options, &mut state);
     pane(f, app, Pane::Output, output);
 
-    f.render_widget(Paragraph::new(" $ antlion"), command);
+    let line = super::command::line(&app.selection().args());
+    f.render_widget(Paragraph::new(format!(" $ {line}")), command);
     if let Some(s) = &app.status {
         f.render_widget(
             Paragraph::new(format!(" {s}")).style(Style::new().fg(Color::Yellow)),
@@ -190,7 +191,7 @@ pub(super) mod tests {
                 "{title} once"
             );
         }
-        assert!(s[21].starts_with(" $ antlion"));
+        assert!(s[21].starts_with(" $ antlion --compare --report"));
         assert!(s[23].contains("Tab pane"));
         assert!(s[23].contains("q quit"));
     }
@@ -233,6 +234,26 @@ pub(super) mod tests {
         assert!(s[1].contains(" output   json"));
         assert!(s[2].contains(" mode     totals"));
         assert!(s[3].contains(" jobs     3"));
+    }
+
+    #[test]
+    fn command_line() {
+        use super::super::catalog::Pair;
+        let p = |name: &str| Pair {
+            name: name.to_string(),
+            state: State::Built,
+            source: true,
+        };
+        let mut app = App::new(vec![p("flow"), p("numeric"), p("ttl")]);
+        app.pair_pick.on[0] = true;
+        app.pair_pick.on[2] = true;
+        app.report_pick.on[6] = true;
+        app.json = true;
+        let s = screen(&app, 100, 30);
+        assert!(
+            s.iter()
+                .any(|r| r.starts_with(" $ antlion --compare flow ttl --report cost --json "))
+        );
     }
 
     #[test]
