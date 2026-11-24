@@ -36,6 +36,7 @@ pub fn run() -> Result<()> {
     let dir = std::env::current_dir()
         .map_err(|e| Error::failed(format!("cannot read the working directory: {e}")))?;
     let mut app = App::new(catalog::pairs(&dir));
+    app.root = dir.clone();
     // A run is antlion itself again, so the command shown is the command that runs.
     app.program = std::env::current_exe()
         .map_err(|e| Error::failed(format!("cannot find the antlion binary: {e}")))?

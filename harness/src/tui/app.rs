@@ -105,6 +105,8 @@ pub struct Tab {
     pub left: usize,
     /// The last search in the output.
     pub search: Option<Search>,
+    /// A `--build` run, whose end changes the build state of the pairs.
+    build: bool,
 }
 
 impl Tab {
@@ -114,6 +116,7 @@ impl Tab {
             top: None,
             left: 0,
             search: None,
+            build: false,
         }
     }
 
@@ -172,6 +175,8 @@ pub struct App {
     pub mode: Mode,
     /// `None` leaves the number of threads to antlion.
     pub jobs: Option<usize>,
+    /// The folder the pairs are read from, to read them again after a build.
+    pub root: std::path::PathBuf,
     /// The program a run starts: the antlion binary itself.
     pub program: String,
     /// One tab for each run, the oldest first.
@@ -201,6 +206,7 @@ impl Default for App {
             json: false,
             mode: Mode::Totals,
             jobs: None,
+            root: std::path::PathBuf::from("."),
             program: "antlion".to_string(),
             tabs: Vec::new(),
             tab: 0,
@@ -234,13 +240,77 @@ impl App {
         self.tabs.get_mut(self.tab)
     }
 
-    /// Take the new output of each run, and search it.
+    /// Take the new output of each run, and search it. When a build ends, read the build
+    /// state of the pairs again.
     pub fn tick(&mut self) {
+        let mut built = false;
         for t in &mut self.tabs {
+            let was = t.run.running();
             t.run.poll();
+            built |= t.build && was && !t.run.running();
             if let Some(s) = &mut t.search {
                 s.update(&t.run.lines);
             }
+        }
+        if built {
+            self.reload();
+        }
+    }
+
+    /// Read the pairs again, and keep the selection and the cursor on the same names.
+    fn reload(&mut self) {
+        let on: Vec<&str> = self
+            .pairs
+            .iter()
+            .zip(&self.pair_pick.on)
+            .filter(|(_, on)| **on)
+            .map(|(p, _)| p.name.as_str())
+            .collect();
+        let cur = self.pairs.get(self.pair_pick.cur).map(|p| p.name.clone());
+        let pairs = super::catalog::pairs(&self.root);
+        let mut pick = Pick::new(pairs.len());
+        for (i, p) in pairs.iter().enumerate() {
+            pick.on[i] = on.contains(&p.name.as_str());
+            if cur.as_deref() == Some(p.name.as_str()) {
+                pick.cur = i;
+            }
+        }
+        self.pairs = pairs;
+        self.pair_pick = pick;
+    }
+
+    /// Build every selected pair that has a source folder, in a new tab.
+    fn build(&mut self) {
+        if self.running() {
+            return;
+        }
+        let (src, none): (Vec<&Pair>, Vec<&Pair>) = self
+            .pairs
+            .iter()
+            .zip(&self.pair_pick.on)
+            .filter(|(_, on)| **on)
+            .map(|(p, _)| p)
+            .partition(|p| p.source);
+        self.status = (!none.is_empty()).then(|| {
+            let names: Vec<&str> = none.iter().map(|p| p.name.as_str()).collect();
+            format!("not built, no folder in contracts/: {}", names.join(", "))
+        });
+        if src.is_empty() {
+            if none.is_empty() {
+                self.status = Some("select a pair to build".to_string());
+            }
+            return;
+        }
+        let mut args = vec!["--build".to_string()];
+        args.extend(src.iter().map(|p| format!("contracts/{}", p.name)));
+        match Run::start(&self.program, args, &self.root) {
+            Ok(r) => {
+                self.add_tab(r);
+                if let Some(t) = self.tabs.last_mut() {
+                    t.build = true;
+                }
+            }
+            Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
         }
     }
 
@@ -328,7 +398,7 @@ impl App {
         if command::refusal(&args).is_some() || self.running() {
             return;
         }
-        match Run::start(&self.program, args) {
+        match Run::start(&self.program, args, &self.root) {
             Ok(r) => self.add_tab(r),
             Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
         }
@@ -515,6 +585,7 @@ impl App {
             }
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
             KeyCode::Char('r') => self.start(),
+            KeyCode::Char('b') => self.build(),
             KeyCode::Tab => self.focus = self.focus.next(1),
             KeyCode::BackTab => self.focus = self.focus.next(-1),
             KeyCode::Char(c @ '1'..='4') => self.focus = Pane::ALL[c as usize - '1' as usize],
@@ -525,6 +596,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     fn press(app: &mut App, code: KeyCode, modifiers: KeyModifiers) {
@@ -619,8 +692,9 @@ mod tests {
     #[test]
     fn quit_during_a_run() {
         let mut app = App::default();
-        app.tabs
-            .push(Tab::new(Run::start("sleep", vec!["30".into()]).unwrap()));
+        app.tabs.push(Tab::new(
+            Run::start("sleep", vec!["30".into()], Path::new(".")).unwrap(),
+        ));
         keys(&mut app, "q");
         assert!(!app.quit);
         assert!(
@@ -633,8 +707,9 @@ mod tests {
 
         // Any other key in between asks again.
         let mut app = App::default();
-        app.tabs
-            .push(Tab::new(Run::start("sleep", vec!["30".into()]).unwrap()));
+        app.tabs.push(Tab::new(
+            Run::start("sleep", vec!["30".into()], Path::new(".")).unwrap(),
+        ));
         keys(&mut app, "qjq");
         assert!(!app.quit);
 
@@ -648,7 +723,7 @@ mod tests {
     /// An app whose run printed `n` lines, with an output pane `h` rows high.
     fn with_output(n: usize, h: usize) -> App {
         let script = format!("seq 1 {n}");
-        let mut r = Run::start("sh", vec!["-c".into(), script]).unwrap();
+        let mut r = Run::start("sh", vec!["-c".into(), script], Path::new(".")).unwrap();
         super::super::runner::tests::finish(&mut r);
         App {
             tabs: vec![Tab::new(r)],
@@ -754,6 +829,59 @@ mod tests {
     }
 
     #[test]
+    fn build_reads_the_states_again() {
+        use super::super::catalog::State;
+        let d = super::super::catalog::tests::scratch("build");
+        std::fs::create_dir_all(d.join("contracts/a")).unwrap();
+        std::fs::create_dir_all(d.join("contracts/b")).unwrap();
+        let mut app = App::new(super::super::catalog::pairs(&d));
+        app.root = d.clone();
+        // A stand in for antlion: `--build contracts/a` writes both files of `a`.
+        app.program = d.join("fake").to_string_lossy().into_owned();
+        std::fs::write(
+            &app.program,
+            "#!/bin/sh\nmkdir -p out/a && touch out/a/sdk.wasm out/a/solang.wasm\n",
+        )
+        .unwrap();
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(&app.program)
+            .status()
+            .unwrap();
+
+        keys(&mut app, " jb");
+        assert_eq!(app.tabs[0].run.args, ["--build", "contracts/a"]);
+        assert!(app.tabs[0].build);
+        let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.running() && std::time::Instant::now() < stop {
+            app.tick();
+        }
+        app.tick();
+        assert_eq!(app.pairs[0].state, State::Built);
+        assert_eq!(app.pairs[1].state, State::None);
+        assert_eq!(app.pair_pick.on, [true, false]);
+        assert_eq!(app.pair_pick.cur, 1);
+    }
+
+    #[test]
+    fn build_needs_a_source() {
+        let mut app = App::new(vec![Pair {
+            name: "x".to_string(),
+            state: super::super::catalog::State::Built,
+            source: false,
+        }]);
+        keys(&mut app, "b");
+        assert_eq!(app.status.as_deref(), Some("select a pair to build"));
+        keys(&mut app, " b");
+        assert!(app.tabs.is_empty());
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.contains("no folder in contracts/: x"))
+        );
+    }
+
+    #[test]
     fn tabs() {
         let mut app = App {
             focus: Pane::Output,
@@ -765,7 +893,12 @@ mod tests {
         assert_eq!(app.tab, 0);
 
         for i in 0..12 {
-            let mut r = Run::start("sh", vec!["-c".into(), format!("seq 1 {}", 20 + i)]).unwrap();
+            let mut r = Run::start(
+                "sh",
+                vec!["-c".into(), format!("seq 1 {}", 20 + i)],
+                Path::new("."),
+            )
+            .unwrap();
             super::super::runner::tests::finish(&mut r);
             app.add_tab(r);
         }

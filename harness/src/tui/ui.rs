@@ -13,6 +13,8 @@ use super::app::{App, Ask, OPTIONS, Pane, Pick};
 use super::catalog::State;
 use super::search;
 use crate::compare::Report;
+#[cfg(test)]
+use std::path::Path;
 
 /// The smallest screen the layout fits in.
 const MIN_W: u16 = 60;
@@ -201,11 +203,11 @@ fn run_state(r: &super::runner::Run) -> String {
 /// The keys of the pane that has the focus, then the keys that work everywhere.
 fn hints(p: Pane) -> String {
     let own = match p {
-        Pane::Pairs | Pane::Reports => "j/k move  Space select  a all  A none  ",
+        Pane::Pairs | Pane::Reports => "j/k move  Space select  a/A all/none  ",
         Pane::Options => "j/k move  Space change  +/- jobs  ",
         Pane::Output => "j/k ^D/^U gg/G h/l scroll  / n N search  [ ] tab  s save  ",
     };
-    format!(" {own}Tab pane  r run  c cancel  q quit")
+    format!(" {own}Tab pane  r run  b build  c stop  q quit")
 }
 
 /// A pane that is a list: each row with its box, the count in the title, the cursor in
@@ -353,8 +355,12 @@ pub(super) mod tests {
     fn output_follows_the_end() {
         let mut app = App::default();
         let script = "for i in $(seq 1 100); do echo line$i; done; echo oops >&2";
-        let mut r =
-            super::super::runner::Run::start("sh", vec!["-c".into(), script.into()]).unwrap();
+        let mut r = super::super::runner::Run::start(
+            "sh",
+            vec!["-c".into(), script.into()],
+            Path::new("."),
+        )
+        .unwrap();
         super::super::runner::tests::finish(&mut r);
         app.tabs.push(super::super::app::Tab::new(r));
         let s = screen(&app, 80, 24);

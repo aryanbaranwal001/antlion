@@ -2,6 +2,7 @@
 
 use std::{
     io::{BufRead, BufReader, Read},
+    path::Path,
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver, TryRecvError},
     thread,
@@ -34,11 +35,12 @@ pub struct Run {
 }
 
 impl Run {
-    /// Start `program` with `args` in the background. Each line of stdout and stderr is
-    /// read on its own thread, so neither pipe can fill up and stop the child.
-    pub fn start(program: &str, args: Vec<String>) -> std::io::Result<Run> {
+    /// Start `program` with `args` in `dir`, in the background. Each line of stdout and
+    /// stderr is read on its own thread, so neither pipe can fill up and stop the child.
+    pub fn start(program: &str, args: Vec<String>, dir: &Path) -> std::io::Result<Run> {
         let mut child = Command::new(program)
             .args(&args)
+            .current_dir(dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -135,7 +137,7 @@ pub(super) mod tests {
     #[test]
     fn lines_and_exit_code() {
         let script = "echo one; echo two >&2; printf 'three'; exit 3";
-        let mut run = Run::start("sh", vec!["-c".into(), script.into()]).unwrap();
+        let mut run = Run::start("sh", vec!["-c".into(), script.into()], Path::new(".")).unwrap();
         finish(&mut run);
         assert_eq!(run.end.map(|e| e.0), Some(End::Exited(Some(3))));
 
@@ -148,7 +150,7 @@ pub(super) mod tests {
 
     #[test]
     fn cancel() {
-        let mut run = Run::start("sleep", vec!["30".into()]).unwrap();
+        let mut run = Run::start("sleep", vec!["30".into()], Path::new(".")).unwrap();
         let pid = run.pid();
         run.cancel();
         assert_eq!(run.end.map(|e| e.0), Some(End::Cancelled));
@@ -161,6 +163,6 @@ pub(super) mod tests {
 
     #[test]
     fn a_program_that_does_not_exist() {
-        assert!(Run::start("antlion-no-such-program", Vec::new()).is_err());
+        assert!(Run::start("antlion-no-such-program", Vec::new(), Path::new(".")).is_err());
     }
 }
