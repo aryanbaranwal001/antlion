@@ -127,6 +127,49 @@ fn config(dir: &Path) -> Result<DocumentMut, String> {
     }
 }
 
+/// The default options in the config file. `None` keeps the built in default.
+#[derive(Default, PartialEq, Debug)]
+pub struct Defaults {
+    pub json: Option<bool>,
+    pub mode: Option<crate::cli::Mode>,
+    pub jobs: Option<usize>,
+}
+
+/// The default options in the config file of `dir`: `output = "text"` or `"json"`,
+/// `mode = "totals"`, `"detail"` or `"dump"`, and `jobs`, 1 or more. A bad value is an
+/// error.
+pub fn defaults(dir: &Path) -> Result<Defaults, String> {
+    use crate::cli::Mode;
+    let doc = config(dir)?;
+    let text = |key: &str| {
+        doc.get(key)
+            .map(|v| v.as_str().ok_or(format!("`{key}` needs a string")))
+    };
+    let json = match text("output").transpose()? {
+        None => None,
+        Some("text") => Some(false),
+        Some("json") => Some(true),
+        Some(v) => return Err(format!("output = \"{v}\": use \"text\" or \"json\"")),
+    };
+    let mode = match text("mode").transpose()? {
+        None => None,
+        Some("totals") => Some(Mode::Totals),
+        Some("detail") => Some(Mode::Detail),
+        Some("dump") => Some(Mode::Dump),
+        Some(v) => {
+            return Err(format!(
+                "mode = \"{v}\": use \"totals\", \"detail\" or \"dump\""
+            ));
+        }
+    };
+    let jobs = match doc.get("jobs").map(|v| v.as_integer()) {
+        None => None,
+        Some(Some(n)) if n >= 1 => Some(n as usize),
+        Some(_) => return Err("`jobs` needs a number, 1 or more".to_string()),
+    };
+    Ok(Defaults { json, mode, jobs })
+}
+
 /// Every preset in the config file of `dir`: its name and its arguments, in file order.
 /// A preset whose `args` is not a list of strings is an error.
 pub fn presets(dir: &Path) -> Result<Vec<(String, Vec<String>)>, String> {
@@ -231,6 +274,36 @@ mod tests {
         assert!(text.starts_with("# my comment\njobs = 2\n"));
         assert_eq!(presets(&d).unwrap().len(), 2);
         assert_eq!(presets(&d).unwrap()[1].1, args);
+    }
+
+    #[test]
+    fn config_defaults() {
+        use crate::cli::Mode;
+        let d = scratch("defaults");
+        assert_eq!(defaults(&d).unwrap(), Defaults::default());
+        fs::write(
+            config_file(&d),
+            "jobs = 2\noutput = \"json\"\nmode = \"dump\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            defaults(&d).unwrap(),
+            Defaults {
+                json: Some(true),
+                mode: Some(Mode::Dump),
+                jobs: Some(2)
+            }
+        );
+        for bad in [
+            "jobs = 0",
+            "jobs = \"2\"",
+            "output = \"xml\"",
+            "mode = 3",
+            "jobs =",
+        ] {
+            fs::write(config_file(&d), bad).unwrap();
+            assert!(defaults(&d).is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -38,8 +38,23 @@ pub fn run() -> Result<()> {
         .map_err(|e| Error::failed(format!("cannot read the working directory: {e}")))?;
     let mut app = App::new(catalog::pairs(&dir));
     app.root = dir.clone();
+    app.status = catalog::root_warning(&dir);
     app.state_dir = store::state_dir();
     app.config_dir = store::config_dir();
+    if let Some(d) = &app.config_dir {
+        match store::defaults(d) {
+            Ok(o) => {
+                app.json = o.json.unwrap_or(app.json);
+                app.mode = o.mode.unwrap_or(app.mode);
+                app.jobs = o.jobs.or(app.jobs);
+            }
+            // A warning that the root is wrong matters more, so it stays.
+            Err(e) => {
+                app.status
+                    .get_or_insert(format!("{e}; using the built in defaults"));
+            }
+        }
+    }
     if let Some(d) = &app.state_dir {
         app.history = store::history(d);
     }
@@ -48,7 +63,6 @@ pub fn run() -> Result<()> {
         .map_err(|e| Error::failed(format!("cannot find the antlion binary: {e}")))?
         .to_string_lossy()
         .into_owned();
-    app.status = catalog::root_warning(&dir);
 
     // `init` also puts the terminal back when a panic happens, so the shell stays usable.
     let mut terminal = ratatui::init();
