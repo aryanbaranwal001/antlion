@@ -1,9 +1,24 @@
 //! The terminal UI of `--interactive`: pick pairs, reports and options from lists, see the
 //! command they make, and run it.
 
-use std::io::{IsTerminal, stdin, stdout};
+mod app;
+mod ui;
+
+use std::{
+    io::{IsTerminal, stdin, stdout},
+    time::Duration,
+};
+
+use ratatui::{
+    DefaultTerminal,
+    crossterm::event::{self, Event, KeyEventKind},
+};
 
 use crate::error::{Error, Result};
+use app::App;
+
+/// How long the loop waits for a key before it draws again.
+const TICK: Duration = Duration::from_millis(100);
 
 /// Open the terminal UI, and return when the user quits.
 pub fn run() -> Result<()> {
@@ -12,6 +27,27 @@ pub fn run() -> Result<()> {
         return Err(Error::usage(
             "--interactive needs a terminal; use --build or --compare in a pipe or a script",
         ));
+    }
+
+    // `init` also puts the terminal back when a panic happens, so the shell stays usable.
+    let mut terminal = ratatui::init();
+    let out = event_loop(&mut terminal, &mut App::default());
+    ratatui::restore();
+    out
+}
+
+fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
+    let io = |e: std::io::Error| Error::failed(format!("terminal: {e}"));
+    while !app.quit {
+        terminal.draw(|f| ui::draw(f, app)).map_err(io)?;
+        if event::poll(TICK).map_err(io)? {
+            // A key is reported on press and, on some terminals, on release too.
+            if let Event::Key(k) = event::read().map_err(io)?
+                && k.kind == KeyEventKind::Press
+            {
+                app.key(k);
+            }
+        }
     }
     Ok(())
 }
