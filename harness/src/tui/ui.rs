@@ -6,7 +6,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::Line,
     text::Span,
-    widgets::{Block, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use super::app::{App, Ask, OPTIONS, Pane, Pick};
@@ -89,6 +89,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Some(p) = &app.prompt {
         let label = match p.ask {
             Ask::Search | Ask::Filter(_) => "/",
+            Ask::Palette => ":",
             Ask::Save => "save to: ",
             Ask::Overwrite => "file is there, y to write over it: ",
         };
@@ -117,6 +118,40 @@ pub fn draw(f: &mut Frame, app: &App) {
             .style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
+    if app.prompt.as_ref().is_some_and(|p| p.ask == Ask::Palette) {
+        palette(f, app);
+    }
+}
+
+/// The command palette: a box in the middle of the screen, with the entries that match.
+fn palette(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let w = (area.width * 3 / 5).max(40).min(area.width);
+    let h = (area.height * 3 / 5).max(8).min(area.height);
+    let r = Rect::new((area.width - w) / 2, (area.height - h) / 4, w, h);
+    let hits = app.palette_hits();
+    let width = r.width.saturating_sub(4) as usize;
+    let rows: Vec<ListItem> = hits
+        .iter()
+        .map(|e| {
+            let pad = width.saturating_sub(e.label.chars().count() + e.key.len());
+            ListItem::new(format!("{}{}{}", e.label, " ".repeat(pad), e.key))
+        })
+        .collect();
+    let block = Block::bordered()
+        .title(format!(
+            " : {} ",
+            app.prompt.as_ref().map_or("", |p| p.text.as_str())
+        ))
+        .title_bottom(Line::from(" Enter do  Up/Down move  Esc close ").right_aligned())
+        .border_style(Style::new().fg(Color::Cyan));
+    let widget = List::new(rows)
+        .block(block)
+        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+    let mut state =
+        ListState::default().with_selected((!hits.is_empty()).then_some(app.palette_cur));
+    f.render_widget(Clear, r);
+    f.render_stateful_widget(widget, r, &mut state);
 }
 
 /// The lines of the run that fit, from the end: the pane follows the output as it comes.

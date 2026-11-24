@@ -171,10 +171,39 @@ pub enum Ask {
     Search,
     /// A filter on the list of a pane, applied as the user types.
     Filter(Pane),
+    /// The command palette: the text filters the actions.
+    Palette,
     /// A file name to save the output of the tab to.
     Save,
     /// Whether to write over the file the text names. `y` agrees.
     Overwrite,
+}
+
+/// What a palette entry does.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Act {
+    Run,
+    Build,
+    Cancel,
+    Save,
+    Quit,
+    AllPairs,
+    NoPairs,
+    AllReports,
+    NoReports,
+    Output,
+    Mode,
+    /// Select or clear the pair with this index.
+    Pair(usize),
+    /// Select or clear the report with this index in `Report::ALL`.
+    Report(usize),
+}
+
+/// One entry of the command palette: what it says, its key, and what it does.
+pub struct Entry {
+    pub label: String,
+    pub key: &'static str,
+    pub act: Act,
 }
 
 /// A line the user types into, shown in place of the command line. It gets every key
@@ -213,6 +242,8 @@ pub struct App {
     pub view_height: usize,
     /// The line the user types into, while it is open.
     pub prompt: Option<Prompt>,
+    /// The row under the cursor of the palette, in the entries that match.
+    pub palette_cur: usize,
     /// `q` was pressed while a run was active, and needs a second `q`.
     quit_asked: bool,
     /// The first `g` of `gg` was pressed.
@@ -238,6 +269,7 @@ impl Default for App {
             tab: 0,
             view_height: 0,
             prompt: None,
+            palette_cur: 0,
             quit_asked: false,
             g: false,
         }
@@ -343,6 +375,10 @@ impl App {
     /// A key while the prompt is open: type, delete, confirm or give up.
     fn prompt_key(&mut self, k: KeyEvent) {
         let Some(p) = &mut self.prompt else { return };
+        if p.ask == Ask::Palette {
+            self.palette_key(k);
+            return;
+        }
         if p.ask == Ask::Overwrite {
             let p = self.prompt.take().expect("the prompt is open");
             if k.code == KeyCode::Char('y') {
@@ -392,7 +428,7 @@ impl App {
                             t.show_line(l, h);
                         }
                     }
-                    Ask::Filter(_) => {}
+                    Ask::Filter(_) | Ask::Palette => {}
                     Ask::Save if p.text.is_empty() => {}
                     Ask::Save if std::path::Path::new(&p.text).exists() => {
                         self.prompt = Some(Prompt {
@@ -405,6 +441,112 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Every entry of the palette: the actions, then each pair, then each report.
+    pub fn entries(&self) -> Vec<Entry> {
+        let e = |label: &str, key, act| Entry {
+            label: label.to_string(),
+            key,
+            act,
+        };
+        let mut v = vec![
+            e("run the command", "r", Act::Run),
+            e("build the selected pairs", "b", Act::Build),
+            e("cancel the run", "c", Act::Cancel),
+            e("save the output to a file", "s", Act::Save),
+            e("select every pair", "a", Act::AllPairs),
+            e("clear every pair", "A", Act::NoPairs),
+            e("select every report", "a", Act::AllReports),
+            e("clear every report", "A", Act::NoReports),
+            e("output: text or json", "", Act::Output),
+            e("mode: totals, detail or dump", "", Act::Mode),
+            e("quit", "q", Act::Quit),
+        ];
+        for (i, p) in self.pairs.iter().enumerate() {
+            v.push(e(&format!("pair {}", p.name), "", Act::Pair(i)));
+        }
+        for (i, r) in Report::ALL.iter().enumerate() {
+            v.push(e(&format!("report {}", r.name()), "", Act::Report(i)));
+        }
+        v
+    }
+
+    /// The entries that match the text of the palette, the best match first.
+    pub fn palette_hits(&self) -> Vec<Entry> {
+        let text = self.prompt.as_ref().map_or("", |p| p.text.as_str());
+        let mut all: Vec<Option<Entry>> = self.entries().into_iter().map(Some).collect();
+        let names: Vec<&str> = all.iter().flatten().map(|e| e.label.as_str()).collect();
+        let order = super::search::ranked(text, &names);
+        order.into_iter().filter_map(|i| all[i].take()).collect()
+    }
+
+    /// A key while the palette is open.
+    fn palette_key(&mut self, k: KeyEvent) {
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let Some(p) = &mut self.prompt else { return };
+        match k.code {
+            KeyCode::Esc => self.prompt = None,
+            KeyCode::Down | KeyCode::Tab => self.palette_cur += 1,
+            KeyCode::Char('n') if ctrl => self.palette_cur += 1,
+            KeyCode::Up | KeyCode::BackTab => self.palette_cur = self.palette_cur.saturating_sub(1),
+            KeyCode::Char('p') if ctrl => self.palette_cur = self.palette_cur.saturating_sub(1),
+            KeyCode::Char(c) => {
+                p.text.push(c);
+                self.palette_cur = 0;
+            }
+            KeyCode::Backspace => {
+                p.text.pop();
+                self.palette_cur = 0;
+            }
+            KeyCode::Enter => {
+                let hits = self.palette_hits();
+                let act = hits.get(self.palette_cur.min(hits.len().saturating_sub(1)));
+                let act = act.map(|e| e.act);
+                self.prompt = None;
+                if let Some(a) = act {
+                    self.act(a);
+                }
+            }
+            _ => {}
+        }
+        let n = self.palette_hits().len();
+        self.palette_cur = self.palette_cur.min(n.saturating_sub(1));
+    }
+
+    /// Do what a palette entry says.
+    fn act(&mut self, a: Act) {
+        match a {
+            Act::Run => self.start(),
+            Act::Build => self.build(),
+            Act::Cancel => self.tabs.iter_mut().for_each(|t| t.run.cancel()),
+            Act::Save => {
+                if let Some(t) = self.current() {
+                    self.prompt = Some(Prompt {
+                        ask: Ask::Save,
+                        text: command::file_name(&t.run.args),
+                    });
+                }
+            }
+            Act::Quit if self.running() => {
+                self.status = Some("a run is active: press c to stop it, then q".to_string())
+            }
+            Act::Quit => self.quit = true,
+            Act::AllPairs => self.pair_pick.on.fill(true),
+            Act::NoPairs => self.pair_pick.on.fill(false),
+            Act::AllReports => self.report_pick.on.fill(true),
+            Act::NoReports => self.report_pick.on.fill(false),
+            Act::Output => self.json = !self.json,
+            Act::Mode => {
+                self.mode = match self.mode {
+                    Mode::Totals => Mode::Detail,
+                    Mode::Detail => Mode::Dump,
+                    Mode::Dump => Mode::Totals,
+                }
+            }
+            Act::Pair(i) => self.pair_pick.on[i] = !self.pair_pick.on[i],
+            Act::Report(i) => self.report_pick.on[i] = !self.report_pick.on[i],
         }
     }
 
@@ -539,14 +681,8 @@ impl App {
             }
             KeyCode::Char('k') | KeyCode::Up => self.option = self.option.saturating_sub(1),
             KeyCode::Char(' ') | KeyCode::Enter => match OPTIONS[self.option] {
-                "output" => self.json = !self.json,
-                "mode" => {
-                    self.mode = match self.mode {
-                        Mode::Totals => Mode::Detail,
-                        Mode::Detail => Mode::Dump,
-                        Mode::Dump => Mode::Totals,
-                    }
-                }
+                "output" => self.act(Act::Output),
+                "mode" => self.act(Act::Mode),
                 _ => {}
             },
             // `auto` is below 1, so the number never goes under 1.
@@ -658,6 +794,13 @@ impl App {
                 }
             }
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
+            KeyCode::Char(':') => {
+                self.palette_cur = 0;
+                self.prompt = Some(Prompt {
+                    ask: Ask::Palette,
+                    text: String::new(),
+                });
+            }
             KeyCode::Char('r') => self.start(),
             KeyCode::Char('b') => self.build(),
             KeyCode::Tab => self.focus = self.focus.next(1),
@@ -757,6 +900,46 @@ mod tests {
         keys(&mut app, " jGa");
         assert_eq!(app.pair_pick.item(), None);
         assert_eq!(app.pair_pick.count(), 1);
+    }
+
+    #[test]
+    fn palette() {
+        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
+        keys(&mut app, ":cost");
+        assert_eq!(app.palette_hits()[0].label, "report cost");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(app.prompt.is_none());
+        assert_eq!(app.selection().reports, [Report::Cost]);
+
+        // Down moves to the next match; `Esc` closes and does nothing.
+        keys(&mut app, ":numer");
+        assert_eq!(app.palette_hits()[0].act, Act::Pair(1));
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.pair_pick.count(), 0);
+        keys(&mut app, ":pair");
+        let row = app
+            .palette_hits()
+            .iter()
+            .position(|e| e.label == "pair numeric")
+            .unwrap();
+        assert!(row > 0);
+        for _ in 0..row {
+            press(&mut app, KeyCode::Down, KeyModifiers::NONE);
+        }
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.selection().pairs, ["numeric"]);
+
+        // While the palette is open, its keys are text: `q` does not quit.
+        keys(&mut app, ":quit");
+        assert!(!app.quit);
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(app.quit);
+
+        // No match, and `Enter` does nothing.
+        let mut app = App::default();
+        keys(&mut app, ":zzzzz");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert!(!app.quit && app.prompt.is_none());
     }
 
     #[test]
