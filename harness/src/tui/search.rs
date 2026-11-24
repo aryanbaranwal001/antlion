@@ -1,6 +1,29 @@
-//! Search in the output of a run.
+//! Search in the output of a run, and fuzzy search in the lists.
+
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{CaseMatching, Normalization, Pattern},
+};
 
 use super::runner::Line;
+
+/// The index of each name that fuzzy matches `query`, in the order of `names`. A match
+/// has the letters of the query in order, with gaps: `stc` matches `struct_class`.
+pub fn fuzzy(query: &str, names: &[&str]) -> Vec<usize> {
+    let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
+    let mut matcher = Matcher::new(Config::DEFAULT);
+    let mut buf = Vec::new();
+    names
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| {
+            pattern
+                .score(Utf32Str::new(n, &mut buf), &mut matcher)
+                .is_some()
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
 
 /// Whether `text` holds `query`. Case is ignored unless the query has a capital letter,
 /// as with `smartcase` in vim.
@@ -67,6 +90,20 @@ mod tests {
                 err: false,
             })
             .collect()
+    }
+
+    #[test]
+    fn fuzzy_names() {
+        let names = [
+            "scalar_store",
+            "storage",
+            "struct_class",
+            "struct_store",
+            "ttl",
+        ];
+        assert_eq!(fuzzy("stc", &names), [2, 3]);
+        assert_eq!(fuzzy("", &names), [0, 1, 2, 3, 4]);
+        assert_eq!(fuzzy("zzz", &names), Vec::<usize>::new());
     }
 
     #[test]

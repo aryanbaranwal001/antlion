@@ -46,20 +46,25 @@ impl Pane {
     }
 }
 
-/// A list where the user moves a cursor and selects items.
+/// A list where the user moves a cursor and selects items. A filter can hide items; the
+/// keys then act on the items shown, and the selection of the others stays.
 #[derive(Default)]
 pub struct Pick {
-    /// The item under the cursor.
+    /// The row under the cursor, in the rows shown.
     pub cur: usize,
     /// Whether each item is selected.
     pub on: Vec<bool>,
+    /// The filter the user typed; empty shows every item.
+    pub filter: String,
+    /// The items the filter shows, in list order; `None` shows every item.
+    shown: Option<Vec<usize>>,
 }
 
 impl Pick {
     pub fn new(len: usize) -> Self {
         Pick {
-            cur: 0,
             on: vec![false; len],
+            ..Pick::default()
         }
     }
 
@@ -67,9 +72,28 @@ impl Pick {
         self.on.iter().filter(|x| **x).count()
     }
 
+    /// The items shown, in list order.
+    pub fn rows(&self) -> Vec<usize> {
+        self.shown
+            .clone()
+            .unwrap_or_else(|| (0..self.on.len()).collect())
+    }
+
+    /// The item under the cursor, if any row is shown.
+    pub fn item(&self) -> Option<usize> {
+        self.rows().get(self.cur).copied()
+    }
+
+    /// Show only the items in `shown`, or every item with `None`.
+    fn show(&mut self, filter: String, shown: Option<Vec<usize>>) {
+        self.filter = filter;
+        self.shown = shown;
+        self.cur = 0;
+    }
+
     /// Move the cursor by `step`, and stop at each end.
     fn step(&mut self, step: isize) {
-        let last = self.on.len().saturating_sub(1) as isize;
+        let last = self.rows().len().saturating_sub(1) as isize;
         self.cur = (self.cur as isize + step).clamp(0, last) as usize;
     }
 
@@ -79,14 +103,14 @@ impl Pick {
             KeyCode::Char('j') | KeyCode::Down => self.step(1),
             KeyCode::Char('k') | KeyCode::Up => self.step(-1),
             KeyCode::Char('g') if g => self.cur = 0,
-            KeyCode::Char('G') => self.cur = self.on.len().saturating_sub(1),
+            KeyCode::Char('G') => self.cur = self.rows().len().saturating_sub(1),
             KeyCode::Char(' ') => {
-                if let Some(x) = self.on.get_mut(self.cur) {
-                    *x = !*x;
+                if let Some(i) = self.item() {
+                    self.on[i] = !self.on[i];
                 }
             }
-            KeyCode::Char('a') => self.on.fill(true),
-            KeyCode::Char('A') => self.on.fill(false),
+            KeyCode::Char('a') => self.rows().into_iter().for_each(|i| self.on[i] = true),
+            KeyCode::Char('A') => self.rows().into_iter().for_each(|i| self.on[i] = false),
             _ => return false,
         }
         true
@@ -145,6 +169,8 @@ impl Tab {
 pub enum Ask {
     /// A search in the output.
     Search,
+    /// A filter on the list of a pane, applied as the user types.
+    Filter(Pane),
     /// A file name to save the output of the tab to.
     Save,
     /// Whether to write over the file the text names. `y` agrees.
@@ -266,7 +292,7 @@ impl App {
             .filter(|(_, on)| **on)
             .map(|(p, _)| p.name.as_str())
             .collect();
-        let cur = self.pairs.get(self.pair_pick.cur).map(|p| p.name.clone());
+        let cur = self.pair_pick.item().map(|i| self.pairs[i].name.clone());
         let pairs = super::catalog::pairs(&self.root);
         let mut pick = Pick::new(pairs.len());
         for (i, p) in pairs.iter().enumerate() {
@@ -327,11 +353,24 @@ impl App {
             return;
         }
         match k.code {
-            KeyCode::Char(c) => p.text.push(c),
+            KeyCode::Char(c) => {
+                p.text.push(c);
+                self.filter_live();
+            }
             KeyCode::Backspace => {
                 p.text.pop();
+                self.filter_live();
             }
-            KeyCode::Esc => self.prompt = None,
+            KeyCode::Esc => {
+                // `Esc` on a filter clears it, and shows every item again.
+                if let Some(Prompt {
+                    ask: Ask::Filter(pane),
+                    ..
+                }) = self.prompt.take()
+                {
+                    self.filter(pane, String::new());
+                }
+            }
             KeyCode::Enter => {
                 let p = self.prompt.take().expect("the prompt is open");
                 match p.ask {
@@ -353,6 +392,7 @@ impl App {
                             t.show_line(l, h);
                         }
                     }
+                    Ask::Filter(_) => {}
                     Ask::Save if p.text.is_empty() => {}
                     Ask::Save if std::path::Path::new(&p.text).exists() => {
                         self.prompt = Some(Prompt {
@@ -365,6 +405,32 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Apply the text of an open filter prompt to its list.
+    fn filter_live(&mut self) {
+        if let Some(Prompt {
+            ask: Ask::Filter(pane),
+            text,
+        }) = &self.prompt
+        {
+            let (pane, text) = (*pane, text.clone());
+            self.filter(pane, text);
+        }
+    }
+
+    /// Show only the items of the list of `pane` that fuzzy match `text`.
+    fn filter(&mut self, pane: Pane, text: String) {
+        let names: Vec<&str> = match pane {
+            Pane::Pairs => self.pairs.iter().map(|p| p.name.as_str()).collect(),
+            Pane::Reports => Report::ALL.iter().map(|r| r.name()).collect(),
+            Pane::Options | Pane::Output => return,
+        };
+        let shown = (!text.is_empty()).then(|| super::search::fuzzy(&text, &names));
+        match pane {
+            Pane::Pairs => self.pair_pick.show(text, shown),
+            _ => self.report_pick.show(text, shown),
         }
     }
 
@@ -533,7 +599,7 @@ impl App {
 
     /// The report under the cursor of the reports pane.
     pub fn report_at_cursor(&self) -> Report {
-        Report::ALL[self.report_pick.cur]
+        Report::ALL[self.report_pick.item().unwrap_or(0)]
     }
 
     pub fn key(&mut self, k: KeyEvent) {
@@ -551,6 +617,14 @@ impl App {
         if let Some(list) = list {
             if k.code == KeyCode::Char('g') && !g {
                 self.g = true;
+                return;
+            }
+            if k.code == KeyCode::Char('/') {
+                let text = list.filter.clone();
+                self.prompt = Some(Prompt {
+                    ask: Ask::Filter(self.focus),
+                    text,
+                });
                 return;
             }
             if list.key(k.code, g) {
@@ -643,6 +717,46 @@ mod tests {
         let mut app = App::new(Vec::new());
         keys(&mut app, "jkG gg aA");
         assert_eq!(app.pair_pick.cur, 0);
+    }
+
+    #[test]
+    fn filter() {
+        let names = [
+            "scalar_store",
+            "storage",
+            "struct_class",
+            "struct_store",
+            "ttl",
+        ];
+        let mut app = App::new(names.iter().map(|n| pair(n)).collect());
+        app.pair_pick.on[4] = true;
+        keys(&mut app, "/stc");
+        assert_eq!(app.pair_pick.rows(), [2, 3]);
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        // The keys act on the rows shown.
+        keys(&mut app, "j ");
+        assert_eq!(app.pair_pick.on, [false, false, false, true, true]);
+        keys(&mut app, "a");
+        assert_eq!(app.pair_pick.on, [false, false, true, true, true]);
+        keys(&mut app, "A");
+        assert_eq!(app.pair_pick.on, [false, false, false, false, true]);
+
+        // `/` opens the filter with its text; Backspace widens it as the user types.
+        keys(&mut app, "/");
+        assert_eq!(app.prompt.as_ref().unwrap().text, "stc");
+        press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        assert_eq!(app.pair_pick.rows(), [0, 1, 2, 3]);
+        // `Esc` clears the filter and keeps the selection.
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.pair_pick.rows().len(), 5);
+        assert_eq!(app.pair_pick.on, [false, false, false, false, true]);
+
+        // A filter that matches nothing shows no row, and the keys do nothing.
+        keys(&mut app, "/zzz");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, " jGa");
+        assert_eq!(app.pair_pick.item(), None);
+        assert_eq!(app.pair_pick.count(), 1);
     }
 
     #[test]

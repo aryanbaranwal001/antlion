@@ -14,8 +14,9 @@ wasmparser = "0.116"
 serde_json = { version = "1", features = ["preserve_order"] }
 rayon = "1"
 ratatui = { version = "0.30", optional = true }
+nucleo-matcher = { version = "0.3", optional = true }
 
 [features]
 default = ["interactive"]
 # The terminal UI of `--interactive`. Build with `--no-default-features` to leave it out.
-interactive = ["dep:ratatui"]
+interactive = ["dep:ratatui", "dep:nucleo-matcher"]

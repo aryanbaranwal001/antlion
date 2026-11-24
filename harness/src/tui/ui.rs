@@ -88,7 +88,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     if let Some(p) = &app.prompt {
         let label = match p.ask {
-            Ask::Search => "/",
+            Ask::Search | Ask::Filter(_) => "/",
             Ask::Save => "save to: ",
             Ask::Overwrite => "file is there, y to write over it: ",
         };
@@ -203,11 +203,11 @@ fn run_state(r: &super::runner::Run) -> String {
 /// The keys of the pane that has the focus, then the keys that work everywhere.
 fn hints(p: Pane) -> String {
     let own = match p {
-        Pane::Pairs | Pane::Reports => "j/k move  Space select  a/A all/none  ",
+        Pane::Pairs | Pane::Reports => "j/k  Space select  a/A all/none  / filter  ",
         Pane::Options => "j/k move  Space change  +/- jobs  ",
         Pane::Output => "j/k ^D/^U gg/G h/l scroll  / n N search  [ ] tab  s save  ",
     };
-    format!(" {own}Tab pane  r run  b build  c stop  q quit")
+    format!(" {own}Tab  r run  b build  c stop  q quit")
 }
 
 /// A pane that is a list: each row with its box, the count in the title, the cursor in
@@ -221,14 +221,20 @@ fn list<'a>(
     rows: impl Iterator<Item = Vec<Span<'a>>>,
     bottom: Option<Line<'a>>,
 ) {
-    let items: Vec<ListItem> = rows
-        .zip(&pick.on)
-        .map(|(mut spans, on)| {
-            spans.insert(0, Span::raw(if *on { "[x] " } else { "[ ] " }));
-            ListItem::new(Line::from(spans))
+    let mut rows: Vec<Option<Vec<Span>>> = rows.map(Some).collect();
+    let items: Vec<ListItem> = pick
+        .rows()
+        .into_iter()
+        .filter_map(|i| {
+            let mut spans = rows.get_mut(i)?.take()?;
+            spans.insert(0, Span::raw(if pick.on[i] { "[x] " } else { "[ ] " }));
+            Some(ListItem::new(Line::from(spans)))
         })
         .collect();
-    let title = format!(" {} ({}/{}) ", p.title(), pick.count(), pick.on.len());
+    let mut title = format!(" {} ({}/{}) ", p.title(), pick.count(), pick.on.len());
+    if !pick.filter.is_empty() {
+        title.push_str(&format!("/{} ", pick.filter));
+    }
     let cursor = if app.focus == p {
         Style::new().add_modifier(Modifier::REVERSED)
     } else {
@@ -287,7 +293,7 @@ pub(super) mod tests {
             );
         }
         assert!(s[21].starts_with(" $ antlion --compare --report   no contract given"));
-        assert!(s[23].contains("Tab pane"));
+        assert!(s[23].contains("Tab  r run"));
         assert!(s[23].contains("q quit"));
     }
 
