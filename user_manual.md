@@ -94,68 +94,80 @@ prints a warning and runs every call on one thread.
 antlion --interactive
 ```
 
-Opens a terminal UI where you pick pairs, reports and options from lists, see the command
-they make, run it, and read and search its output. Start it from the project root, where
-`out/` and `contracts/` are. It needs a terminal: in a pipe or a script it exits with 2, so
-use `--build` and `--compare` there.
+Opens a terminal UI where you type a command, see the words that can come next, run it,
+and read and search its output. Start it from the project root, where `out/` and
+`contracts/` are. It needs a terminal: in a pipe or a script it exits with 2, so use
+`--build` and `--compare` there.
 
-The UI runs antlion itself for each command, with the arguments you picked. The command
-line at the bottom always shows that exact command, and `y` copies it, so anything you do in
-the UI you can also do in a shell or a script.
+The UI runs antlion itself for each command, with the arguments you typed, so anything you
+do in the UI you can also do in a shell or a script. `y` copies the command.
 
 ```
-┌ Pairs (2/22) ────────┐┌ Reports (1/17) ──────┐┌ Options ─────────┐
-│[x] flow     built    ││[ ] returns           ││ output   text    │
-│[x] numeric  built    ││[x] cost              ││ mode     totals  │
-│[ ] ttl      stale    ││[ ] scaling           ││ jobs     auto    │
-└──────────────────────┘└ metered cost of ... ─┘└──────────────────┘
-┌ Output: antlion --compare flow numeric --report cost ── lines 1-12 of 150 ┐
-│ ...                                                                      │
-└──────────────────────────────────────────────────────────────────────────┘
- $ antlion --compare flow numeric --report cost
+┌ Command ──────────────────────────────┐┌ Suggestions (4) ────────┐
+│antlion --compare flow --report co     ││ cost                    │
+└ unknown report `co` ... ──────────────┘│ opcodes                 │
+┌ Output: antlion --compare flow ... ───┐│ sections                │
+│ ...                                   │└─────────────────────────┘
+│                                       │┌ report cost ────────────┐
+│                                       ││metered cost of calling  │
+│                                       ││each function, ...       │
+└───────────────────────────────────────┘└─────────────────────────┘
  done  0.9 s  150 lines  tab 1 of 1
- j/k  Space select  a/A all/none  / filter  K info  Tab  r run  ? help  q quit
+ Tab complete  ↑↓ pick  Enter run  Esc output  ^P palette  ^R history  ^C quit
 ```
 
-**The panes.** Pairs lists every folder in `contracts/` and every build in `out/`, with its
-state: `built` (both wasm files are there), `stale` (a source file is newer than a build)
-or `none`. Reports lists the 17 reports; the lower border shows what the one under the
-cursor does. Options sets the output (`text` or `json`), the mode (`totals`, `detail` or
-`dump`, so `--detail` and `--dump` never go together) and the jobs (`auto` leaves the
-number to antlion). Output shows the run, and each run has its own tab.
+**The command line.** It starts with `antlion`, which you cannot change, and you type the
+rest. When the CLI would refuse what you typed, the lower border shows the reason in red,
+and `Enter` does not run it.
 
-**The command line.** It shows the command your picks make. When the CLI would refuse it,
-for example with no pair or no report, it shows the reason in red, and `r` does nothing.
+**The suggestions.** The pane on the right lists every word that can come at the cursor,
+in the order the CLI takes them: a command first, then the pairs after `--compare` (or the
+pair folders after `--build`), then `--report`, then the reports, then `--json`, `--detail`,
+`--dump` and `--jobs`. A word you already typed is not suggested again, and `--detail` and
+`--dump` never go together. The word you are typing filters the list with fuzzy search:
+the letters must come in order, with gaps allowed, so `stc` finds `struct_class`. The best
+match comes first. `Tab` puts in the suggestion under the cursor and a space after it, so
+the next words show at once.
 
-**The keys.** Press `?` for every key. The most used:
+**The details.** The pane under the suggestions shows the help for the suggestion under the
+cursor: what a command or a flag does, what a report measures and which inputs it calls
+each function with, or the build state of a pair and the signature of each function in
+both builds. With no suggestion, it shows the help for the last flag you typed.
 
-| Key | Action |
-|---|---|
-| `Tab`, `Shift+Tab`, `1` to `4` | Move between the panes |
-| `j` `k`, `gg` `G` | Move in a list, or scroll the output |
-| `Space` | Select or clear the item under the cursor |
-| `a`, `A` | Select all, clear all, of the items shown |
-| `/` | Filter a list, or search the output |
-| `n`, `N` | Next match, match before |
-| `K` | Help for the pair, report or option under the cursor |
-| `r` | Run the command |
-| `b` | Build the selected pairs |
-| `c` | Cancel the run |
-| `y` | Copy the command |
-| `s` | Save the output of the tab to a file |
-| `[`, `]` | Tab before, next tab |
-| `H` | History of runs |
-| `:` | Command palette |
-| `q` | Quit; during a run, press it twice |
+**The output.** Each run has its own tab. `Esc` moves the keys to the output, and `i`
+moves them back to the command line.
 
-A list filter and the palette use fuzzy search: the letters you type must come in order,
-with gaps allowed, so `stc` finds `struct_class`. The output search ignores case unless you
-type a capital letter.
+**The keys.** Press `Esc` and then `?` for every key. The most used:
 
-**The palette.** `:` opens a box with every action, pair and report. Type part of a name and
-press `Enter`. Some actions are only in the palette:
+| Key | Where | Action |
+|---|---|---|
+| `Tab` | Command line | Put in the suggestion under the cursor |
+| `Up`, `Down` | Command line | Move in the suggestions |
+| `Enter` | Command line | Run the command |
+| `Ctrl+W`, `Ctrl+U` | Command line | Delete the word before the cursor, or all text before it |
+| `Esc` | Command line | Go to the output |
+| `i` | Output | Go back to the command line |
+| `j` `k`, `gg` `G`, `h` `l` | Output | Scroll |
+| `/`, `n`, `N` | Output | Search, next match, match before |
+| `[`, `]` | Output | Tab before, next tab |
+| `s` | Output | Save the output of the tab to a file |
+| `r` | Output | Run the command again |
+| `c` | Output | Cancel the run |
+| `y` | Output | Copy the command |
+| `q` | Output | Quit; during a run, press it twice |
+| `Ctrl+P` | Everywhere | Command palette |
+| `Ctrl+R` | Everywhere | History of runs |
+| `Ctrl+C` | Everywhere | Quit at once, and stop the run |
 
-- save the selection as a preset, and load a preset;
+The output search ignores case unless you type a capital letter.
+
+**The history.** `Ctrl+R` lists your last runs. Type part of one and press `Enter`, and it
+goes into the command line, ready to change or to run.
+
+**The palette.** `Ctrl+P` opens a box with every action. Type part of a name and press
+`Enter`. Some actions are only in the palette:
+
+- save the command as a preset, and load a preset into the command line;
 - the doctor, which checks that `solang` and `stellar` are on `PATH`, that `out/` is there,
   and which pairs are stale or not built, with a fix for each problem;
 - the `scripts/check.sh` tasks: `build`, `diff`, `save`, `wasm` and `time`. `save` asks
@@ -165,23 +177,18 @@ press `Enter`. Some actions are only in the palette:
 
 | File | What it holds |
 |---|---|
-| `~/.local/state/antlion/history.jsonl` | The last 200 `--compare` runs: time, arguments, exit code and duration |
-| `~/.config/antlion/config.toml` | Your defaults and your presets |
+| `~/.local/state/antlion/history.jsonl` | The last 200 antlion runs: time, arguments, exit code and duration |
+| `~/.config/antlion/config.toml` | Your presets |
 
 `$XDG_STATE_HOME` and `$XDG_CONFIG_HOME` move them, and `ANTLION_CONFIG_DIR` puts both in
 one folder. The config file looks like this:
 
 ```toml
-output = "text"     # or "json"
-mode = "detail"     # "totals", "detail" or "dump"
-jobs = 2            # 1 or more
-
 [presets."cost of numeric pairs"]
 args = ["--compare", "numeric", "--report", "cost"]
 ```
 
-When the UI saves a preset, it keeps the rest of the file, comments too. A bad value shows
-in the status bar, and the UI starts with the built in defaults.
+When the UI saves a preset, it keeps the rest of the file, comments too.
 
 The UI is a cargo feature, `interactive`, on by default. `cargo build --no-default-features`
 leaves it out, and then `--interactive` exits with 1.
