@@ -247,6 +247,9 @@ pub struct App {
     pub palette_cur: usize,
     /// The help overlay, while it is open: the first line it shows.
     pub help: Option<usize>,
+    /// The help for one item, while it is open: its title, its lines and the first line
+    /// shown.
+    pub info: Option<(String, Vec<String>, usize)>,
     /// `q` was pressed while a run was active, and needs a second `q`.
     quit_asked: bool,
     /// The first `g` of `gg` was pressed.
@@ -274,6 +277,7 @@ impl Default for App {
             prompt: None,
             palette_cur: 0,
             help: None,
+            info: None,
             quit_asked: false,
             g: false,
         }
@@ -446,6 +450,42 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// The help for the item under the cursor of the pane that has the focus.
+    fn info_at_cursor(&self) -> Option<(String, Vec<String>, usize)> {
+        use super::catalog;
+        let (title, lines) = match self.focus {
+            Pane::Pairs => {
+                let p = &self.pairs[self.pair_pick.item()?];
+                let mut lines = vec![format!("state: {}", p.state.label()), String::new()];
+                lines.extend(catalog::signatures(&self.root, &p.name));
+                (format!("pair {}", p.name), lines)
+            }
+            Pane::Reports => {
+                let r = self.report_at_cursor();
+                let lines = vec![
+                    r.about().to_string(),
+                    String::new(),
+                    format!("inputs: {}", catalog::inputs(r)),
+                ];
+                (format!("report {}", r.name()), lines)
+            }
+            Pane::Options => {
+                let flags: &[&str] = match OPTIONS[self.option] {
+                    "output" => &["--json"],
+                    "mode" => &["--detail", "--dump"],
+                    _ => &["--jobs"],
+                };
+                let lines = flags
+                    .iter()
+                    .flat_map(|f| [format!("{f}: {}", catalog::option_help(f)), String::new()])
+                    .collect();
+                (format!("option {}", OPTIONS[self.option]), lines)
+            }
+            Pane::Output => return None,
+        };
+        Some((title, lines, 0))
     }
 
     /// Every entry of the palette: the actions, then each pair, then each report.
@@ -745,6 +785,15 @@ impl App {
     }
 
     pub fn key(&mut self, k: KeyEvent) {
+        if let Some((_, _, top)) = &mut self.info {
+            match k.code {
+                KeyCode::Char('j') | KeyCode::Down => *top += 1,
+                KeyCode::Char('k') | KeyCode::Up => *top = top.saturating_sub(1),
+                KeyCode::Esc | KeyCode::Char('K' | 'q') => self.info = None,
+                _ => {}
+            }
+            return;
+        }
         if let Some(top) = &mut self.help {
             match k.code {
                 KeyCode::Char('j') | KeyCode::Down => *top += 1,
@@ -810,6 +859,7 @@ impl App {
             }
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
             KeyCode::Char('?') => self.help = Some(0),
+            KeyCode::Char('K') => self.info = self.info_at_cursor(),
             KeyCode::Char(':') => {
                 self.palette_cur = 0;
                 self.prompt = Some(Prompt {
@@ -975,6 +1025,25 @@ mod tests {
         assert_eq!(app.help, Some(0));
         press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.help, None);
+    }
+
+    #[test]
+    fn info() {
+        let mut app = App::default();
+        keys(&mut app, "K");
+        // No pair, so no help for one.
+        assert!(app.info.is_none());
+        keys(&mut app, "2jjjjjjK");
+        let (title, lines, _) = app.info.clone().unwrap();
+        assert_eq!(title, "report cost");
+        assert!(lines[0].starts_with("metered cost of calling"));
+        assert!(lines[2].contains("cost to fail"));
+        keys(&mut app, "q");
+        assert!(app.info.is_none() && !app.quit);
+        keys(&mut app, "3jjK");
+        let (title, lines, _) = app.info.clone().unwrap();
+        assert_eq!(title, "option jobs");
+        assert!(lines[0].starts_with("--jobs: threads"));
     }
 
     #[test]

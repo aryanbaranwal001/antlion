@@ -6,7 +6,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::Line,
     text::Span,
-    widgets::{Block, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
 use super::app::{App, Ask, OPTIONS, Pane, Pick};
@@ -124,6 +124,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Some(top) = app.help {
         help(f, top);
     }
+    if let Some((title, lines, top)) = &app.info {
+        popup(f, title, lines, *top);
+    }
 }
 
 /// Every key of the screen, by where it works.
@@ -144,6 +147,7 @@ PAIRS AND REPORTS
 
     j k              down, up
     gg G             first, last
+    K                help for the item
     Space            select or clear the item
     a A              select all, clear all (of the items shown)
     /                filter; Esc clears it, the selection stays
@@ -153,6 +157,7 @@ OPTIONS
     j k              down, up
     Space  Enter     change the value
     + -              more or fewer jobs; below 1 is auto
+    K                help for the option
 
 OUTPUT
 
@@ -183,8 +188,13 @@ fn help(f: &mut Frame, top: usize) {
         .and_then(|s| s.split("\nBUNDLED CONTRACTS\n").next())
         .unwrap_or("");
     let text = format!("{KEYS}\nINPUTS\n{inputs}");
-    let lines: Vec<Line> = text.lines().map(Line::raw).collect();
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    popup(f, "Help", &lines, top);
+}
 
+/// A box over most of the screen with `lines`, from line `top`, and the keys to scroll it.
+fn popup(f: &mut Frame, title: &str, lines: &[String], top: usize) {
+    let lines: Vec<Line> = lines.iter().map(|l| Line::raw(l.as_str())).collect();
     let area = f.area();
     let r = Rect::new(
         2,
@@ -194,13 +204,14 @@ fn help(f: &mut Frame, top: usize) {
     );
     let top = top.min(lines.len().saturating_sub(1));
     let block = Block::bordered()
-        .title(" Help ")
+        .title(format!(" {title} "))
         .title_bottom(Line::from(" j/k scroll  Esc close ").right_aligned())
         .border_style(Style::new().fg(Color::Cyan));
     f.render_widget(Clear, r);
     f.render_widget(
         Paragraph::new(lines)
             .block(block)
+            .wrap(Wrap { trim: false })
             .scroll((u16::try_from(top).unwrap_or(u16::MAX), 0)),
         r,
     );
@@ -321,11 +332,11 @@ fn run_state(r: &super::runner::Run) -> String {
 /// The keys of the pane that has the focus, then the keys that work everywhere.
 fn hints(p: Pane) -> String {
     let own = match p {
-        Pane::Pairs | Pane::Reports => "j/k  Space select  a/A all/none  / filter  ",
+        Pane::Pairs | Pane::Reports => "j/k  Space select  a/A all/none  / filter  K info  ",
         Pane::Options => "j/k move  Space change  +/- jobs  ",
         Pane::Output => "j/k ^D/^U gg/G h/l scroll  / n N search  [ ] tab  s save  ",
     };
-    format!(" {own}Tab  r run  b build  ? help  q quit")
+    format!(" {own}Tab  r run  ? help  q quit")
 }
 
 /// A pane that is a list: each row with its box, the count in the title, the cursor in

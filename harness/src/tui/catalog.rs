@@ -2,6 +2,8 @@
 
 use std::{fs, path::Path, time::SystemTime};
 
+use crate::compare::Report;
+
 /// Whether a pair can be compared, and whether its build is up to date.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum State {
@@ -97,6 +99,87 @@ fn newest(dir: &Path) -> Option<SystemTime> {
     best
 }
 
+/// The inputs a report calls each function with, in the words of the INPUTS part of
+/// `help.md`.
+pub fn inputs(r: Report) -> &'static str {
+    match r {
+        Report::Returns => {
+            "every function once for each input row: small, large, bound and neg, and the \
+             extra, short, wrong, asvec, badarg and authed rows where they apply"
+        }
+        Report::Cost => "small; large, bound and neg as well, for the cost to fail",
+        Report::Scaling => "every integer argument n and every list n long, for n from 0 to 64",
+        Report::Ledger
+        | Report::Access
+        | Report::Trace
+        | Report::Ttl
+        | Report::Sequence
+        | Report::Events => "small",
+        Report::Size
+        | Report::Sections
+        | Report::Imports
+        | Report::Interface
+        | Report::Meta
+        | Report::Opcodes
+        | Report::Functions
+        | Report::Layout => "none: it reads the two wasm files and calls nothing",
+    }
+}
+
+/// The text of `flag` in the OPTIONS part of `help.md`, on one line.
+pub fn option_help(flag: &str) -> String {
+    let help = include_str!("../../../help.md");
+    let part = help
+        .split("\nOPTIONS\n")
+        .nth(1)
+        .and_then(|s| s.split("\nREPORTS\n").next())
+        .unwrap_or("");
+    let mut out = String::new();
+    let mut inside = false;
+    for line in part.lines() {
+        if line.starts_with("    --") {
+            inside = line.split_whitespace().next() == Some(flag);
+            if inside {
+                let text = line.trim_start().trim_start_matches(flag);
+                // The flag can have an argument, such as `<n>`; the text is after the gap.
+                out.push_str(text.split_once("  ").map_or(text, |(_, t)| t).trim());
+            }
+        } else if inside && !line.trim().is_empty() {
+            out.push(' ');
+            out.push_str(line.trim());
+        }
+    }
+    out
+}
+
+/// The signature of each function in the spec of each build of `name`, or why there is
+/// none.
+pub fn signatures(root: &Path, name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for side in ["sdk", "solang"] {
+        out.push(format!("{side}:"));
+        let path = root.join("out").join(name).join(format!("{side}.wasm"));
+        let lines = match fs::read(&path) {
+            Err(_) => vec!["not built".to_string()],
+            Ok(bytes) => match crate::wasm::Contract::load(&bytes) {
+                Err(e) => vec![format!("cannot read it: {e}")],
+                Ok(c) if c.interface.funcs.is_empty() => {
+                    vec!["no functions in its spec".to_string()]
+                }
+                Ok(c) => c
+                    .interface
+                    .funcs
+                    .iter()
+                    .map(crate::wasm::spec::sig)
+                    .collect(),
+            },
+        };
+        out.extend(lines.into_iter().map(|l| format!("    {l}")));
+        out.push(String::new());
+    }
+    out
+}
+
 /// A warning when `dir` is not the project root. antlion reads `out/` and `contracts/` from
 /// the working directory, so outside the root no pair can be found.
 pub fn root_warning(dir: &Path) -> Option<String> {
@@ -133,6 +216,30 @@ pub(super) mod tests {
         let d = scratch("root-out");
         fs::create_dir(d.join("out")).unwrap();
         assert!(root_warning(&d).is_none());
+    }
+
+    #[test]
+    fn options_from_help() {
+        assert_eq!(
+            option_help("--json"),
+            "print one JSON document in place of the text reports"
+        );
+        assert_eq!(
+            option_help("--jobs"),
+            "threads for the reports that call contracts; default 4, or fewer on a machine with fewer cores"
+        );
+        assert!(option_help("--detail").ends_with("cost: add what each cost type charged"));
+        assert_eq!(option_help("--nope"), "");
+    }
+
+    #[test]
+    fn signatures_of_a_pair() {
+        let d = scratch("sigs");
+        let s = signatures(&d, "x");
+        assert_eq!(
+            s,
+            ["sdk:", "    not built", "", "solang:", "    not built", ""]
+        );
     }
 
     fn touch(path: &Path, secs: u64) {
