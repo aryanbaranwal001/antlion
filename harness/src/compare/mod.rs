@@ -462,3 +462,49 @@ fn title(name: &str) {
     println!("║{left}{name}{right}║");
     println!("╚{line}╝\n");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each report in the REPORTS part of `help.md`, with its text joined onto one line.
+    fn help_reports() -> Vec<(String, String)> {
+        let help = include_str!("../../../help.md");
+        let part = help
+            .split("\nREPORTS\n")
+            .nth(1)
+            .and_then(|s| s.split("\nINPUTS\n").next())
+            .expect("help.md has a REPORTS part before INPUTS");
+
+        let mut out: Vec<(String, String)> = Vec::new();
+        for line in part.lines().filter(|l| !l.trim().is_empty()) {
+            // A report line starts with its name; a longer text goes on below it, indented.
+            let starts = line.starts_with("    ") && !line.starts_with("     ");
+            match (starts, out.last_mut()) {
+                (true, _) => {
+                    let (name, text) = line.trim().split_once("  ").expect("a name and a text");
+                    out.push((name.to_string(), text.trim().to_string()));
+                }
+                (false, Some((_, text))) => {
+                    text.push(' ');
+                    text.push_str(line.trim());
+                }
+                (false, None) => panic!("text before the first report: {line}"),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn help_and_about_agree() {
+        let help: Vec<(String, String)> = help_reports()
+            .into_iter()
+            .filter(|(name, _)| name != "all")
+            .collect();
+        let code: Vec<(String, String)> = Report::ALL
+            .iter()
+            .map(|r| (r.name().to_string(), r.about().to_string()))
+            .collect();
+        assert_eq!(help, code);
+    }
+}
