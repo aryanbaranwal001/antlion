@@ -1,4 +1,5 @@
-//! What the lists show: the pairs and their build state, the reports, the options.
+//! What the suggestions and their details show: the pairs and their build state, and the
+//! help for each command, flag and report.
 
 use std::{fs, path::Path, time::SystemTime};
 
@@ -128,23 +129,60 @@ pub fn inputs(r: Report) -> &'static str {
 
 /// The text of `flag` in the OPTIONS part of `help.md`, on one line.
 pub fn option_help(flag: &str) -> String {
-    let help = include_str!("../../../help.md");
-    let part = help
-        .split("\nOPTIONS\n")
+    entry("OPTIONS", "REPORTS", flag)
+}
+
+/// The text of `command`, such as `--build`, in the COMMANDS part of `help.md`, on one
+/// line.
+pub fn command_help(command: &str) -> String {
+    entry("COMMANDS", "OPTIONS", command)
+}
+
+/// The lines of the USAGE part of `help.md`.
+pub fn usage() -> Vec<String> {
+    part("USAGE", "COMMANDS")
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.trim().to_string())
+        .collect()
+}
+
+/// The text of `help.md` between the headings `name` and `next`.
+fn part(name: &str, next: &str) -> &'static str {
+    include_str!("../../../help.md")
+        .split(&format!("\n{name}\n"))
         .nth(1)
-        .and_then(|s| s.split("\nREPORTS\n").next())
-        .unwrap_or("");
+        .and_then(|s| s.split(&format!("\n{next}\n")).next())
+        .unwrap_or("")
+}
+
+/// The text of the entry for `flag` in the part `name` of `help.md`, on one line. Empty
+/// when there is none.
+fn entry(name: &str, next: &str, flag: &str) -> String {
     let mut out = String::new();
-    let mut inside = false;
-    for line in part.lines() {
+    let (mut inside, mut started) = (false, false);
+    for line in part(name, next).lines() {
+        if line.trim().is_empty() {
+            // The entries end at the first blank line after them; a note can follow.
+            if started {
+                break;
+            }
+            continue;
+        }
+        started = true;
         if line.starts_with("    --") {
             inside = line.split_whitespace().next() == Some(flag);
             if inside {
-                let text = line.trim_start().trim_start_matches(flag);
-                // The flag can have an argument, such as `<n>`; the text is after the gap.
-                out.push_str(text.split_once("  ").map_or(text, |(_, t)| t).trim());
+                let text = line.trim_start()[flag.len()..].trim_start();
+                // The flag can have an argument, such as `<n>`; the text is after it.
+                let text = if text.starts_with('<') {
+                    text.split_once(' ').map_or("", |(_, t)| t)
+                } else {
+                    text
+                };
+                out.push_str(text.trim());
             }
-        } else if inside && !line.trim().is_empty() {
+        } else if inside {
             out.push(' ');
             out.push_str(line.trim());
         }
@@ -221,7 +259,7 @@ pub fn doctor(root: &Path, pairs: &[Pair]) -> Vec<String> {
     } else {
         out.push("problem out/ is not there, so no pair can be compared".to_string());
         out.push(
-            "        fix: select the pairs and press b, or run scripts/check.sh build".to_string(),
+            "        fix: run --build contracts/<name>, or the check.sh build task".to_string(),
         );
     }
 
@@ -235,7 +273,8 @@ pub fn doctor(root: &Path, pairs: &[Pair]) -> Vec<String> {
             continue;
         }
         out.push(format!("problem {what}: {}", names.join(", ")));
-        out.push("        fix: select them and press b".to_string());
+        let paths: Vec<String> = names.iter().map(|n| format!("contracts/{n}")).collect();
+        out.push(format!("        fix: run --build {}", paths.join(" ")));
     }
     let built = pairs.iter().filter(|p| p.state == State::Built).count();
     out.push(format!(
@@ -295,6 +334,22 @@ pub(super) mod tests {
         );
         assert!(option_help("--detail").ends_with("cost: add what each cost type charged"));
         assert_eq!(option_help("--nope"), "");
+        assert_eq!(
+            option_help("--report"),
+            "reports to run; required, pass `all` for every one"
+        );
+    }
+
+    #[test]
+    fn commands_from_help() {
+        assert_eq!(command_help("--help"), "print this help");
+        assert_eq!(
+            command_help("--build"),
+            "compile each <contract>/{sdk,solang} into out/<name>/"
+        );
+        // The note under the commands is not part of the last one.
+        assert_eq!(command_help("--version"), "print the version");
+        assert!(usage()[0].starts_with("antlion --build"));
     }
 
     #[test]

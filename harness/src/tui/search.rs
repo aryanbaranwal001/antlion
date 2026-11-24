@@ -1,4 +1,4 @@
-//! Search in the output of a run, and fuzzy search in the lists.
+//! Search in the output of a run, and fuzzy search in the suggestions and the palette.
 
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -6,24 +6,6 @@ use nucleo_matcher::{
 };
 
 use super::runner::Line;
-
-/// The index of each name that fuzzy matches `query`, in the order of `names`. A match
-/// has the letters of the query in order, with gaps: `stc` matches `struct_class`.
-pub fn fuzzy(query: &str, names: &[&str]) -> Vec<usize> {
-    let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
-    let mut matcher = Matcher::new(Config::DEFAULT);
-    let mut buf = Vec::new();
-    names
-        .iter()
-        .enumerate()
-        .filter(|(_, n)| {
-            pattern
-                .score(Utf32Str::new(n, &mut buf), &mut matcher)
-                .is_some()
-        })
-        .map(|(i, _)| i)
-        .collect()
-}
 
 /// Whether `text` holds `query`. Case is ignored unless the query has a capital letter,
 /// as with `smartcase` in vim.
@@ -79,7 +61,8 @@ impl Search {
 }
 
 /// The index of each name that fuzzy matches `query`, the best match first. Names that
-/// match as well keep their order.
+/// match as well keep their order. A match has the letters of the query in order, with
+/// gaps: `stc` matches `struct_class`.
 pub fn ranked(query: &str, names: &[&str]) -> Vec<usize> {
     let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
     let mut matcher = Matcher::new(Config::DEFAULT);
@@ -105,20 +88,6 @@ mod tests {
                 err: false,
             })
             .collect()
-    }
-
-    #[test]
-    fn fuzzy_names() {
-        let names = [
-            "scalar_store",
-            "storage",
-            "struct_class",
-            "struct_store",
-            "ttl",
-        ];
-        assert_eq!(fuzzy("stc", &names), [2, 3]);
-        assert_eq!(fuzzy("", &names), [0, 1, 2, 3, 4]);
-        assert_eq!(fuzzy("zzz", &names), Vec::<usize>::new());
     }
 
     #[test]

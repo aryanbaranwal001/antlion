@@ -1,60 +1,5 @@
-//! A selection, made into the arguments of a `--compare` run and into the line the user sees.
-
-use crate::cli::Mode;
-use crate::compare::Report;
-
-/// What the lists and the options have selected.
-#[derive(Clone, PartialEq, Debug)]
-pub struct Selection {
-    /// Pair names, in list order.
-    pub pairs: Vec<String>,
-    /// Reports, in `Report::ALL` order.
-    pub reports: Vec<Report>,
-    pub json: bool,
-    pub mode: Mode,
-    /// `None` leaves the number of threads to antlion.
-    pub jobs: Option<usize>,
-}
-
-impl Default for Selection {
-    fn default() -> Self {
-        Selection {
-            pairs: Vec::new(),
-            reports: Vec::new(),
-            json: false,
-            mode: Mode::Totals,
-            jobs: None,
-        }
-    }
-}
-
-impl Selection {
-    /// The arguments of the run, without the program name, in a fixed order. Every report
-    /// selected is `all`.
-    pub fn args(&self) -> Vec<String> {
-        let mut a = vec!["--compare".to_string()];
-        a.extend(self.pairs.iter().cloned());
-        a.push("--report".to_string());
-        if self.reports.len() == Report::ALL.len() {
-            a.push("all".to_string());
-        } else {
-            a.extend(self.reports.iter().map(|r| r.name().to_string()));
-        }
-        if self.json {
-            a.push("--json".to_string());
-        }
-        match self.mode {
-            Mode::Totals => {}
-            Mode::Detail => a.push("--detail".to_string()),
-            Mode::Dump => a.push("--dump".to_string()),
-        }
-        if let Some(n) = self.jobs {
-            a.push("--jobs".to_string());
-            a.push(n.to_string());
-        }
-        a
-    }
-}
+//! The arguments of a run, made into the line the user sees, a file name for its output,
+//! and the code that copies text to the clipboard.
 
 /// Why the CLI refuses `args`, on one line, or `None` when it takes them. The TUI never
 /// runs what the CLI would refuse, and it says why in the CLI's own words.
@@ -152,124 +97,47 @@ fn quote(s: &str) -> String {
 mod tests {
     use super::*;
 
-    fn sel(pairs: &[&str], reports: &[Report]) -> Selection {
-        Selection {
-            pairs: pairs.iter().map(|p| p.to_string()).collect(),
-            reports: reports.to_vec(),
-            ..Selection::default()
-        }
-    }
-
-    fn shown(s: &Selection) -> String {
-        line(&s.args())
+    fn args(line: &str) -> Vec<String> {
+        line.split_whitespace().map(String::from).collect()
     }
 
     #[test]
-    fn one_and_many() {
+    fn lines() {
         assert_eq!(
-            shown(&sel(&["flow"], &[Report::Size])),
+            line(&args("--compare flow --report size")),
             "antlion --compare flow --report size"
         );
-        assert_eq!(
-            shown(&sel(&["flow", "numeric"], &[Report::Size, Report::Cost])),
-            "antlion --compare flow numeric --report size cost"
-        );
-    }
-
-    #[test]
-    fn every_report_is_all() {
-        assert_eq!(
-            shown(&sel(&["flow"], &Report::ALL)),
-            "antlion --compare flow --report all"
-        );
-    }
-
-    #[test]
-    fn options() {
-        let mut s = sel(&["flow"], &[Report::Cost]);
-        s.json = true;
-        s.mode = Mode::Detail;
-        s.jobs = Some(2);
-        assert_eq!(
-            shown(&s),
-            "antlion --compare flow --report cost --json --detail --jobs 2"
-        );
-        s.mode = Mode::Dump;
-        s.json = false;
-        s.jobs = None;
-        assert_eq!(shown(&s), "antlion --compare flow --report cost --dump");
-    }
-
-    /// What `cli::parse` makes of the arguments, as a selection again.
-    fn parsed(args: &[String]) -> Selection {
-        match crate::cli::parse(args) {
-            Ok(crate::cli::Command::Compare(c)) => Selection {
-                pairs: c.names,
-                reports: c.reports,
-                json: c.json,
-                mode: c.mode,
-                jobs: c.jobs,
-            },
-            Ok(_) => panic!("{args:?} is not a compare command"),
-            Err(e) => panic!("{args:?} does not parse: {e}"),
-        }
-    }
-
-    #[test]
-    fn round_trip() {
-        let pairs: [&[&str]; 3] = [&["flow"], &["flow", "numeric"], &["a", "b", "c"]];
-        let reports: [&[Report]; 4] = [
-            &[Report::Size],
-            &[Report::Cost, Report::Trace],
-            &[Report::Opcodes, Report::Functions, Report::Layout],
-            &Report::ALL,
-        ];
-        let mut n = 0;
-        for p in pairs {
-            for r in reports {
-                for json in [false, true] {
-                    for mode in [Mode::Totals, Mode::Detail, Mode::Dump] {
-                        for jobs in [None, Some(1), Some(8)] {
-                            let s = Selection {
-                                json,
-                                mode,
-                                jobs,
-                                ..sel(p, r)
-                            };
-                            assert_eq!(parsed(&s.args()), s);
-                            n += 1;
-                        }
-                    }
-                }
-            }
-        }
-        assert_eq!(n, 216);
+        assert_eq!(line(&["my pair".to_string()]), "antlion 'my pair'");
     }
 
     #[test]
     fn refusals() {
         assert_eq!(
-            refusal(&sel(&[], &[Report::Size]).args()).as_deref(),
+            refusal(&args("--compare --report size")).as_deref(),
             Some("no contract given")
         );
         assert!(
-            refusal(&sel(&["flow"], &[]).args())
+            refusal(&args("--compare flow --report"))
                 .is_some_and(|e| e.starts_with("`--report` needs a report name"))
         );
-        assert_eq!(refusal(&sel(&["flow"], &[Report::Size]).args()), None);
+        assert_eq!(refusal(&args("--compare flow --report size")), None);
+        assert_eq!(refusal(&args("--build contracts/flow")), None);
     }
 
     #[test]
     fn file_names() {
-        let mut s = sel(&["flow", "numeric"], &[Report::Cost]);
-        assert_eq!(file_name(&s.args()), "antlion_flow_numeric_cost.txt");
-        s.json = true;
-        s.jobs = Some(2);
-        assert_eq!(file_name(&s.args()), "antlion_flow_numeric_cost.json");
         assert_eq!(
-            file_name(&sel(&["my pair"], &Report::ALL).args()),
-            "antlion_my-pair_all.txt"
+            file_name(&args("--compare flow numeric --report cost")),
+            "antlion_flow_numeric_cost.txt"
         );
+        assert_eq!(
+            file_name(&args(
+                "--compare flow numeric --report cost --json --jobs 2"
+            )),
+            "antlion_flow_numeric_cost.json"
+        );
+        let spaced = ["--compare", "my pair", "--report", "all"].map(String::from);
+        assert_eq!(file_name(&spaced), "antlion_my-pair_all.txt");
     }
 
     #[test]

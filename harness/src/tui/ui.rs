@@ -9,16 +9,18 @@ use ratatui::{
     widgets::{Block, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use super::app::{App, Ask, OPTIONS, Pane, Pick};
-use super::catalog::State;
+use super::app::{App, Ask, Focus};
+use super::complete;
 use super::search;
-use crate::compare::Report;
 #[cfg(test)]
 use std::path::Path;
 
 /// The smallest screen the layout fits in.
 const MIN_W: u16 = 60;
 const MIN_H: u16 = 16;
+
+/// The word the command line starts with, which the user cannot change.
+const PROGRAM: &str = "antlion ";
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
@@ -31,84 +33,34 @@ pub fn draw(f: &mut Frame, app: &App) {
         return;
     }
 
-    let [top, output, command, status, keys] = rows(area);
-    let [pairs, reports, options] = Layout::horizontal([
-        Constraint::Percentage(35),
-        Constraint::Percentage(35),
-        Constraint::Percentage(30),
-    ])
-    .areas(top);
-
-    let w = app
-        .pairs
-        .iter()
-        .map(|p| p.name.chars().count())
-        .max()
-        .unwrap_or(0);
-    let rows = app.pairs.iter().map(|p| {
-        let color = match p.state {
-            State::Built => Color::Green,
-            State::Stale => Color::Yellow,
-            State::None => Color::Red,
-        };
-        vec![
-            Span::raw(format!("{:<w$}", p.name)),
-            Span::styled(format!(" {}", p.state.label()), Style::new().fg(color)),
-        ]
-    });
-    list(f, app, Pane::Pairs, pairs, &app.pair_pick, rows, None);
-
-    let rows = Report::ALL.iter().map(|r| vec![Span::raw(r.name())]);
-    let about = Line::from(format!(" {} ", app.report_at_cursor().about()));
-    list(
-        f,
-        app,
-        Pane::Reports,
-        reports,
-        &app.report_pick,
-        rows,
-        Some(about),
-    );
-    let cursor = if app.focus == Pane::Options {
-        Style::new().add_modifier(Modifier::REVERSED)
-    } else {
-        Style::new()
-    };
-    let rows: Vec<ListItem> = OPTIONS
-        .iter()
-        .zip(app.option_values())
-        .map(|(name, value)| ListItem::new(format!(" {name:<8} {value}")))
-        .collect();
-    let widget = List::new(rows)
-        .block(frame(app, Pane::Options).title(" Options "))
-        .highlight_style(cursor);
-    let mut state = ListState::default().with_selected(Some(app.option));
-    f.render_stateful_widget(widget, options, &mut state);
+    let [command, output, suggestions, details, status, keys] = areas(area);
+    command_line(f, app, command);
     output_pane(f, app, output);
+    suggestions_pane(f, app, suggestions);
+    let (title, lines) = &app.details;
+    let lines: Vec<Line> = lines.iter().map(|l| Line::raw(l.as_str())).collect();
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(frame(false).title(format!(" {title} ")))
+            .wrap(Wrap { trim: false }),
+        details,
+    );
 
     if let Some(p) = &app.prompt {
         let label = match p.ask {
-            Ask::Search | Ask::Filter(_) => "/",
+            Ask::Search => "/",
             Ask::Palette => ":",
             Ask::History => "history: ",
             Ask::Presets => "preset: ",
-            Ask::PresetName => "save the selection as the preset: ",
+            Ask::PresetName => "save the command as the preset: ",
             Ask::Save => "save to: ",
             Ask::Overwrite => "file is there, y to write over it: ",
             Ask::Confirm(_) => "y to go on: ",
         };
-        f.render_widget(Paragraph::new(format!(" {label}{}", p.text)), command);
-        let x = command.x + 1 + (label.chars().count() + p.text.chars().count()) as u16;
-        f.set_cursor_position((x.min(command.right().saturating_sub(1)), command.y));
-    } else {
-        let args = app.selection().args();
-        let mut spans = vec![Span::raw(format!(" $ {}", super::command::line(&args)))];
-        if let Some(e) = super::command::refusal(&args) {
-            spans.push(Span::styled(format!("   {e}"), Style::new().fg(Color::Red)));
-        }
-        f.render_widget(Paragraph::new(Line::from(spans)), command);
-    }
-    if let Some(s) = &app.status {
+        f.render_widget(Paragraph::new(format!(" {label}{}", p.text)), status);
+        let x = status.x + 1 + (label.chars().count() + p.text.chars().count()) as u16;
+        f.set_cursor_position((x.min(status.right().saturating_sub(1)), status.y));
+    } else if let Some(s) = &app.status {
         f.render_widget(
             Paragraph::new(format!(" {s}")).style(Style::new().fg(Color::Yellow)),
             status,
@@ -137,40 +89,81 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
+/// The command line: `antlion`, then what the user typed, and on the lower border why the
+/// CLI refuses it. It scrolls to the side to keep the cursor in view.
+fn command_line(f: &mut Frame, app: &App, area: Rect) {
+    let mut block = frame(app.focus == Focus::Line).title(" Command ");
+    let args = app.args();
+    if !args.is_empty()
+        && let Some(e) = super::command::refusal(&args)
+    {
+        block = block.title_bottom(Line::styled(format!(" {e} "), Style::new().fg(Color::Red)));
+    }
+    let inner = block.inner(area);
+    let at = PROGRAM.len() + app.before().chars().count();
+    let left = (at + 1).saturating_sub(inner.width as usize);
+    let text = Line::from(vec![
+        Span::styled(PROGRAM, Style::new().add_modifier(Modifier::BOLD)),
+        Span::raw(app.line.as_str()),
+    ]);
+    let left16 = u16::try_from(left).unwrap_or(u16::MAX);
+    f.render_widget(Paragraph::new(text).block(block).scroll((0, left16)), area);
+    let open = app.prompt.is_some() || app.help.is_some() || app.info.is_some();
+    if app.focus == Focus::Line && !open {
+        f.set_cursor_position((inner.x + (at - left) as u16, inner.y));
+    }
+}
+
+/// The words that can come at the cursor. When there is none, why.
+fn suggestions_pane(f: &mut Frame, app: &App, area: Rect) {
+    let block = frame(false).title(format!(" Suggestions ({}) ", app.suggestions.len()));
+    if app.suggestions.is_empty() {
+        let before = app.before();
+        let why = if before.trim_end().ends_with("--jobs") && before.ends_with(' ') {
+            "type a number, 1 or more"
+        } else if !complete::word(before).is_empty() {
+            "nothing matches the word typed"
+        } else {
+            "nothing more to add: Enter runs the command"
+        };
+        let text = Paragraph::new(format!(" {why}"))
+            .style(Style::new().add_modifier(Modifier::DIM))
+            .wrap(Wrap { trim: false })
+            .block(block);
+        f.render_widget(text, area);
+        return;
+    }
+    let rows: Vec<ListItem> = app
+        .suggestions
+        .iter()
+        .map(|s| ListItem::new(format!(" {}", s.text)))
+        .collect();
+    let cursor = if app.focus == Focus::Line {
+        Style::new().add_modifier(Modifier::REVERSED)
+    } else {
+        Style::new()
+    };
+    let widget = List::new(rows).block(block).highlight_style(cursor);
+    let mut state = ListState::default().with_selected(Some(app.pick));
+    f.render_stateful_widget(widget, area, &mut state);
+}
+
 /// Every key of the screen, by where it works.
 const KEYS: &str = "\
-EVERYWHERE
+COMMAND LINE
 
-    Tab  Shift+Tab   next pane, pane before
-    1 2 3 4          pairs, reports, options, output
-    r                run the command
-    y                copy the command
-    H                history of runs; Enter loads one, then r runs it
-    b                build the selected pairs
-    c                cancel the run
-    :                command palette
-    ?                this help
-    q                quit; during a run, press it twice
-    Ctrl+C           quit at once, and stop the run
-
-PAIRS AND REPORTS
-
-    j k              down, up
-    gg G             first, last
-    K                help for the item
-    Space            select or clear the item
-    a A              select all, clear all (of the items shown)
-    /                filter; Esc clears it, the selection stays
-
-OPTIONS
-
-    j k              down, up
-    Space  Enter     change the value
-    + -              more or fewer jobs; below 1 is auto
-    K                help for the option
+    type             the command, after antlion
+    Tab              put in the suggestion under the cursor
+    Up Down          move in the suggestions
+    Enter            run the command
+    Left Right       move the cursor; Home and End go to the start and the end
+    Backspace Del    delete the character before the cursor, or at it
+    Ctrl+W Ctrl+U    delete the word before the cursor, or all text before it
+    Esc              go to the output
 
 OUTPUT
 
+    i                go back to the command line
     j k              one line down, up
     Ctrl+D Ctrl+U    half a page down, up
     PgDn PgUp        a page down, up
@@ -180,6 +173,17 @@ OUTPUT
     n N              next match, match before
     [ ]              tab before, next tab
     s                save the output to a file
+    r                run the command again
+    c                cancel the run
+    y                copy the command
+    ?                this help
+    q                quit; during a run, press it twice
+
+EVERYWHERE
+
+    Ctrl+P           command palette
+    Ctrl+R           history of runs; Enter puts one in the command line
+    Ctrl+C           quit at once, and stop the run
 
 PALETTE AND PROMPTS
 
@@ -261,12 +265,13 @@ fn palette(f: &mut Frame, app: &App) {
 
 /// The lines of the run that fit, from the end: the pane follows the output as it comes.
 fn output_pane(f: &mut Frame, app: &App, area: Rect) {
+    let block = frame(app.focus == Focus::Output);
     let Some(t) = app.current() else {
-        pane(f, app, Pane::Output, area);
+        f.render_widget(block.title(" Output "), area);
         return;
     };
     let r = &t.run;
-    let block = frame(app, Pane::Output).title(format!(" Output: {} ", t.title()));
+    let block = block.title(format!(" Output: {} ", t.title()));
     let height = block.inner(area).height as usize;
     let last = r.lines.len().saturating_sub(height);
     let top = t.top.map_or(last, |x| x.min(last));
@@ -305,21 +310,27 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
 /// The rows inside the output pane for a screen of `size`, as `draw` lays it out.
 pub fn output_height(size: ratatui::layout::Size) -> usize {
     let area = Rect::new(0, 0, size.width, size.height);
-    let [_, output, ..] = rows(area);
+    let [_, output, ..] = areas(area);
     output.height.saturating_sub(2) as usize
 }
 
-/// The five rows of the screen: the three lists, the output, the command, the status and
+/// The parts of the screen: on the left the command line and the output under it, on the
+/// right the suggestions and their details under them, and at the bottom the status and
 /// the key hints.
-fn rows(area: Rect) -> [Rect; 5] {
-    Layout::vertical([
-        Constraint::Percentage(40),
-        Constraint::Min(3),
-        Constraint::Length(1),
+fn areas(area: Rect) -> [Rect; 6] {
+    let [main, status, keys] = Layout::vertical([
+        Constraint::Min(6),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .areas(area)
+    .areas(area);
+    let [left, right] =
+        Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)]).areas(main);
+    let [command, output] =
+        Layout::vertical([Constraint::Length(3), Constraint::Min(3)]).areas(left);
+    let [suggestions, details] =
+        Layout::vertical([Constraint::Percentage(40), Constraint::Min(3)]).areas(right);
+    [command, output, suggestions, details, status, keys]
 }
 
 /// The state of a run on one line: running or how it ended, its time and its lines.
@@ -339,68 +350,26 @@ fn run_state(r: &super::runner::Run) -> String {
     )
 }
 
-/// The keys of the pane that has the focus, then the keys that work everywhere.
-fn hints(p: Pane) -> String {
-    let own = match p {
-        Pane::Pairs | Pane::Reports => "j/k  Space select  a/A all/none  / filter  K info  ",
-        Pane::Options => "j/k move  Space change  +/- jobs  ",
-        Pane::Output => "j/k ^D/^U gg/G h/l scroll  / n N search  [ ] tab  s save  ",
-    };
-    format!(" {own}Tab  r run  ? help  q quit")
+/// The keys of the part that has the focus.
+fn hints(focus: Focus) -> &'static str {
+    match focus {
+        Focus::Line => {
+            " Tab complete  ↑↓ pick  Enter run  Esc output  ^P palette  ^R history  ^C quit"
+        }
+        Focus::Output => {
+            " j/k ^D/^U gg/G scroll  / n N search  [ ] tab  s save  i type  ? help  q quit"
+        }
+    }
 }
 
-/// A pane that is a list: each row with its box, the count in the title, the cursor in
-/// reverse when the pane has the focus, and `bottom` on the lower border.
-fn list<'a>(
-    f: &mut Frame,
-    app: &App,
-    p: Pane,
-    area: Rect,
-    pick: &Pick,
-    rows: impl Iterator<Item = Vec<Span<'a>>>,
-    bottom: Option<Line<'a>>,
-) {
-    let mut rows: Vec<Option<Vec<Span>>> = rows.map(Some).collect();
-    let items: Vec<ListItem> = pick
-        .rows()
-        .into_iter()
-        .filter_map(|i| {
-            let mut spans = rows.get_mut(i)?.take()?;
-            spans.insert(0, Span::raw(if pick.on[i] { "[x] " } else { "[ ] " }));
-            Some(ListItem::new(Line::from(spans)))
-        })
-        .collect();
-    let mut title = format!(" {} ({}/{}) ", p.title(), pick.count(), pick.on.len());
-    if !pick.filter.is_empty() {
-        title.push_str(&format!("/{} ", pick.filter));
-    }
-    let cursor = if app.focus == p {
-        Style::new().add_modifier(Modifier::REVERSED)
-    } else {
-        Style::new()
-    };
-    let mut block = frame(app, p).title(title);
-    if let Some(b) = bottom {
-        block = block.title_bottom(b);
-    }
-    let widget = List::new(items).block(block).highlight_style(cursor);
-    let mut state = ListState::default().with_selected(Some(pick.cur));
-    f.render_stateful_widget(widget, area, &mut state);
-}
-
-/// One pane's border, bright when the pane has the focus.
-fn frame(app: &App, p: Pane) -> Block<'static> {
-    let style = if app.focus == p {
+/// A pane's border, bright when it has the focus.
+fn frame(focused: bool) -> Block<'static> {
+    let style = if focused {
         Style::new().fg(Color::Cyan)
     } else {
         Style::new().add_modifier(Modifier::DIM)
     };
     Block::bordered().border_style(style)
-}
-
-/// One pane's frame and title. The pane that has the focus has a bright border.
-fn pane(f: &mut Frame, app: &App, p: Pane, area: Rect) {
-    f.render_widget(frame(app, p).title(format!(" {} ", p.title())), area);
 }
 
 #[cfg(test)]
@@ -419,81 +388,69 @@ pub(super) mod tests {
             .collect()
     }
 
+    fn typed(line: &str) -> App {
+        let mut app = App::default();
+        for c in line.chars() {
+            app.key(ratatui::crossterm::event::KeyEvent::from(
+                ratatui::crossterm::event::KeyCode::Char(c),
+            ));
+        }
+        app
+    }
+
     #[test]
     fn layout_fits_80_by_24() {
         let s = screen(&App::default(), 80, 24);
-        for title in ["Pairs (0/0)", "Reports (0/17)", "Options", "Output"] {
-            assert_eq!(
-                s.iter()
-                    .filter(|r| r.contains(&format!(" {title} ")))
-                    .count(),
-                1,
-                "{title} once"
-            );
-        }
-        assert!(s[21].starts_with(" $ antlion --compare --report   no contract given"));
-        assert!(s[23].contains("Tab  r run"));
-        assert!(s[23].contains("q quit"));
-    }
-
-    #[test]
-    fn pairs_pane() {
-        use super::super::catalog::Pair;
-        let p = |name: &str, state| Pair {
-            name: name.to_string(),
-            state,
-            source: true,
-        };
-        let mut app = App::new(vec![p("flow", State::Built), p("ttl", State::Stale)]);
-        app.pair_pick.on[1] = true;
-        let s = screen(&app, 80, 24);
-        assert!(s[0].contains(" Pairs (1/2) "));
-        assert!(s[1].contains("[ ] flow built"));
-        assert!(s[2].contains("[x] ttl  stale"));
-    }
-
-    #[test]
-    fn reports_pane() {
+        // The command line and the suggestions share the top row, the output is under the
+        // command line.
+        assert!(s[0].contains(" Command ") && s[0].contains(" Suggestions (4) "));
+        assert!(s[1].starts_with("│antlion "));
+        assert!(s[1].contains(" --compare"));
+        assert!(s[3].contains(" Output "));
+        // The details of `--compare`, the suggestion under the cursor, under the
+        // suggestions.
+        let details = s.iter().position(|r| r.contains(" --compare ─")).unwrap();
+        assert!(details > 3);
+        assert!(s[details + 1].contains("diff both builds"));
+        assert!(s[23].contains("^C quit"));
         let mut app = App::default();
-        app.report_pick.on[0] = true;
-        app.report_pick.cur = 6;
-        let s = screen(&app, 100, 30);
-        assert!(s[0].contains(" Reports (1/17) "));
-        assert!(s[1].contains("[x] size"));
-        assert!(s[2].contains("[ ] sections"));
-        // The description of `cost`, the report under the cursor, on the lower border.
-        assert!(s.iter().any(|r| r.contains(" metered cost of calling")));
+        app.key(ratatui::crossterm::event::KeyEvent::from(
+            ratatui::crossterm::event::KeyCode::Esc,
+        ));
+        assert!(screen(&app, 80, 24)[23].contains("q quit"));
     }
 
     #[test]
-    fn options_pane() {
-        let mut app = App::default();
-        app.json = true;
-        app.jobs = Some(3);
-        let s = screen(&app, 100, 30);
-        assert!(s[1].contains(" output   json"));
-        assert!(s[2].contains(" mode     totals"));
-        assert!(s[3].contains(" jobs     3"));
+    fn command_line_and_refusal() {
+        let s = screen(&typed("--compare flow --report cost --json"), 100, 30);
+        assert!(s[1].starts_with("│antlion --compare flow --report cost --json "));
+        // The CLI takes it, so no reason shows on the border.
+        assert!(s[2].starts_with("└──────"));
+
+        let s = screen(&typed("--compare flow"), 100, 30);
+        assert!(s[2].contains(" no report requested"));
     }
 
     #[test]
-    fn command_line() {
-        use super::super::catalog::Pair;
-        let p = |name: &str| Pair {
-            name: name.to_string(),
-            state: State::Built,
-            source: true,
-        };
-        let mut app = App::new(vec![p("flow"), p("numeric"), p("ttl")]);
-        app.pair_pick.on[0] = true;
-        app.pair_pick.on[2] = true;
-        app.report_pick.on[6] = true;
-        app.json = true;
-        let s = screen(&app, 100, 30);
-        assert!(
-            s.iter()
-                .any(|r| r.starts_with(" $ antlion --compare flow ttl --report cost --json "))
-        );
+    fn long_line_scrolls() {
+        let long = format!("--compare {}", "x".repeat(100));
+        let s = screen(&typed(&long), 80, 24);
+        // The end of the line, where the cursor is, stays in view.
+        assert!(s[1].contains("xxxx │"));
+        assert!(!s[1].contains("antlion"));
+    }
+
+    #[test]
+    fn suggestions_and_why_none() {
+        let s = screen(&typed("--compare flow --report si"), 100, 30);
+        assert!(s[1].contains(" size"));
+        let s = screen(&typed("--compare flow --report size --jobs "), 100, 30);
+        assert!(s[0].contains(" Suggestions (0) "));
+        assert!(s[1].contains("type a number, 1 or more"));
+        let s = screen(&typed("--help "), 100, 30);
+        assert!(s[1].contains("nothing more to add"));
+        let s = screen(&typed("--zz"), 100, 30);
+        assert!(s[1].contains("nothing matches"));
     }
 
     #[test]
@@ -509,7 +466,7 @@ pub(super) mod tests {
         super::super::runner::tests::finish(&mut r);
         app.tabs.push(super::super::app::Tab::new(r));
         let s = screen(&app, 80, 24);
-        assert!(s[10].contains(" Output: antlion -c "));
+        assert!(s[3].contains(" Output: antlion -c "));
         // The end is on screen, the start is not.
         assert!(s.iter().any(|r| r.contains("line100")));
         assert!(s.iter().any(|r| r.contains("oops")));
@@ -523,14 +480,15 @@ pub(super) mod tests {
         app.help = Some(0);
         let s = screen(&app, 100, 60);
         assert!(s[1].contains(" Help "));
-        assert!(s[2].contains("EVERYWHERE"));
-        assert!(s.iter().any(|r| r.contains("filter; Esc clears it")));
-        app.help = Some(48);
-        let s = screen(&app, 100, 60);
-        assert!(
-            s.iter()
+        assert!(s[2].contains("COMMAND LINE"));
+        assert!(s.iter().any(|r| r.contains("put in the suggestion")));
+        // The inputs part of help.md comes after the keys.
+        assert!((0..120).any(|top| {
+            app.help = Some(top);
+            screen(&app, 100, 60)
+                .iter()
                 .any(|r| r.contains("small       values that ride inline"))
-        );
+        }));
     }
 
     #[test]

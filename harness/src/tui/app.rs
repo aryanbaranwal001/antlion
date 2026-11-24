@@ -4,117 +4,19 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::catalog::Pair;
-use super::command::{self, Selection};
+use super::command;
+use super::complete::{self, Suggestion};
 use super::runner::Run;
 use super::search::Search;
-use crate::cli::Mode;
-use crate::compare::Report;
 
-/// The most threads `+` gives.
-const MAX_JOBS: usize = 64;
-
-/// The rows of the options pane, in order.
-pub const OPTIONS: [&str; 3] = ["output", "mode", "jobs"];
-
-/// One box on the screen.
+/// Where the keys go.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
-pub enum Pane {
+pub enum Focus {
+    /// The command line: a key types its character.
     #[default]
-    Pairs,
-    Reports,
-    Options,
+    Line,
+    /// The output pane: a key scrolls or searches it.
     Output,
-}
-
-impl Pane {
-    /// Every pane, in `Tab` order.
-    pub const ALL: [Pane; 4] = [Pane::Pairs, Pane::Reports, Pane::Options, Pane::Output];
-
-    /// The pane `step` places after this one in `Tab` order, going round.
-    fn next(self, step: isize) -> Pane {
-        let i = Pane::ALL.iter().position(|p| *p == self).unwrap_or(0) as isize;
-        Pane::ALL[(i + step).rem_euclid(Pane::ALL.len() as isize) as usize]
-    }
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Pane::Pairs => "Pairs",
-            Pane::Reports => "Reports",
-            Pane::Options => "Options",
-            Pane::Output => "Output",
-        }
-    }
-}
-
-/// A list where the user moves a cursor and selects items. A filter can hide items; the
-/// keys then act on the items shown, and the selection of the others stays.
-#[derive(Default)]
-pub struct Pick {
-    /// The row under the cursor, in the rows shown.
-    pub cur: usize,
-    /// Whether each item is selected.
-    pub on: Vec<bool>,
-    /// The filter the user typed; empty shows every item.
-    pub filter: String,
-    /// The items the filter shows, in list order; `None` shows every item.
-    shown: Option<Vec<usize>>,
-}
-
-impl Pick {
-    pub fn new(len: usize) -> Self {
-        Pick {
-            on: vec![false; len],
-            ..Pick::default()
-        }
-    }
-
-    pub fn count(&self) -> usize {
-        self.on.iter().filter(|x| **x).count()
-    }
-
-    /// The items shown, in list order.
-    pub fn rows(&self) -> Vec<usize> {
-        self.shown
-            .clone()
-            .unwrap_or_else(|| (0..self.on.len()).collect())
-    }
-
-    /// The item under the cursor, if any row is shown.
-    pub fn item(&self) -> Option<usize> {
-        self.rows().get(self.cur).copied()
-    }
-
-    /// Show only the items in `shown`, or every item with `None`.
-    fn show(&mut self, filter: String, shown: Option<Vec<usize>>) {
-        self.filter = filter;
-        self.shown = shown;
-        self.cur = 0;
-    }
-
-    /// Move the cursor by `step`, and stop at each end.
-    fn step(&mut self, step: isize) {
-        let last = self.rows().len().saturating_sub(1) as isize;
-        self.cur = (self.cur as isize + step).clamp(0, last) as usize;
-    }
-
-    /// The list keys. True when the key was one of them.
-    fn key(&mut self, code: KeyCode, g: bool) -> bool {
-        match code {
-            KeyCode::Char('j') | KeyCode::Down => self.step(1),
-            KeyCode::Char('k') | KeyCode::Up => self.step(-1),
-            KeyCode::Char('g') if g => self.cur = 0,
-            KeyCode::Char('G') => self.cur = self.rows().len().saturating_sub(1),
-            KeyCode::Char(' ') => {
-                if let Some(i) = self.item() {
-                    self.on[i] = !self.on[i];
-                }
-            }
-            KeyCode::Char('a') => self.rows().into_iter().for_each(|i| self.on[i] = true),
-            KeyCode::Char('A') => self.rows().into_iter().for_each(|i| self.on[i] = false),
-            _ => return false,
-        }
-        true
-    }
 }
 
 /// The most run tabs kept. A new run past this drops the oldest.
@@ -135,9 +37,10 @@ pub struct Tab {
 /// What a tab runs.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
-    /// A `--compare` run, which goes into the history.
-    Compare,
-    /// A run that builds pairs, whose end changes the build state of the pairs.
+    /// An antlion run that builds nothing. It goes into the history.
+    Run,
+    /// An antlion run that builds pairs. It goes into the history, and its end changes the
+    /// build state of the pairs.
     Build,
     /// A `scripts/check.sh` task.
     Task,
@@ -150,7 +53,7 @@ impl Tab {
             top: None,
             left: 0,
             search: None,
-            kind: Kind::Compare,
+            kind: Kind::Run,
         }
     }
 
@@ -158,7 +61,7 @@ impl Tab {
     pub fn title(&self) -> String {
         match self.kind {
             Kind::Task => format!("scripts/check.sh {}", self.run.args.join(" ")),
-            Kind::Compare | Kind::Build => command::line(&self.run.args),
+            Kind::Run | Kind::Build => command::line(&self.run.args),
         }
     }
 
@@ -187,8 +90,6 @@ impl Tab {
 pub enum Ask {
     /// A search in the output.
     Search,
-    /// A filter on the list of a pane, applied as the user types.
-    Filter(Pane),
     /// The command palette: the text filters the actions.
     Palette,
     /// The history of runs, in the palette box: the text filters the runs.
@@ -197,7 +98,7 @@ pub enum Ask {
     Confirm(Act),
     /// The presets, in the palette box: the text filters them.
     Presets,
-    /// A name to save the selection as a preset under.
+    /// A name to save the command line as a preset under.
     PresetName,
     /// A file name to save the output of the tab to.
     Save,
@@ -211,20 +112,9 @@ pub enum Act {
     Help,
     Copy,
     Run,
-    Build,
     Cancel,
     Save,
     Quit,
-    AllPairs,
-    NoPairs,
-    AllReports,
-    NoReports,
-    Output,
-    Mode,
-    /// Select or clear the pair with this index.
-    Pair(usize),
-    /// Select or clear the report with this index in `Report::ALL`.
-    Report(usize),
     /// Open the history of runs.
     History,
     /// Check the tools, `out/` and the pairs.
@@ -233,13 +123,13 @@ pub enum Act {
     Task(&'static str),
     /// Run `scripts/check.sh save`, once the user agreed to write over the golden output.
     SaveGolden,
-    /// Ask for a name, and save the selection as a preset.
+    /// Ask for a name, and save the command line as a preset.
     SavePreset,
     /// Open the presets.
     Presets,
-    /// Load the preset with this index in the presets.
+    /// Put the preset with this index in the presets into the command line.
     LoadPreset(usize),
-    /// Load the selection of the run with this index in the history.
+    /// Put the run with this index in the history into the command line.
     Load(usize),
 }
 
@@ -250,30 +140,31 @@ pub struct Entry {
     pub act: Act,
 }
 
-/// A line the user types into, shown in place of the command line. It gets every key
-/// until `Enter` or `Esc`.
+/// A line the user types into, shown in the status bar. It gets every key until `Enter`
+/// or `Esc`.
 pub struct Prompt {
     pub ask: Ask,
     pub text: String,
 }
 
 pub struct App {
-    /// The pane that gets the keys.
-    pub focus: Pane,
+    /// Where the keys go.
+    pub focus: Focus,
     /// The loop stops at the end of this pass.
     pub quit: bool,
     /// One line for the status bar, such as a warning at start.
     pub status: Option<String>,
     pub pairs: Vec<Pair>,
-    pub pair_pick: Pick,
-    /// One item for each report, in `Report::ALL` order.
-    pub report_pick: Pick,
-    /// The row under the cursor of the options pane, in `OPTIONS`.
-    pub option: usize,
-    pub json: bool,
-    pub mode: Mode,
-    /// `None` leaves the number of threads to antlion.
-    pub jobs: Option<usize>,
+    /// What the user typed after `antlion`.
+    pub line: String,
+    /// Where the cursor is in `line`, in bytes.
+    pub cursor: usize,
+    /// The words that can come at the cursor, the best match first.
+    pub suggestions: Vec<Suggestion>,
+    /// The suggestion under the cursor of the suggestions pane.
+    pub pick: usize,
+    /// The title and the lines of the details pane.
+    pub details: (String, Vec<String>),
     /// The folder the pairs are read from, to read them again after a build.
     pub root: std::path::PathBuf,
     /// The program a run starts: the antlion binary itself.
@@ -290,8 +181,8 @@ pub struct App {
     pub palette_cur: usize,
     /// The help overlay, while it is open: the first line it shows.
     pub help: Option<usize>,
-    /// The help for one item, while it is open: its title, its lines and the first line
-    /// shown.
+    /// A box of text over the screen, while it is open: its title, its lines and the
+    /// first line shown.
     pub info: Option<(String, Vec<String>, usize)>,
     /// The folder of the history file; `None` keeps no history.
     pub state_dir: Option<std::path::PathBuf>,
@@ -311,17 +202,16 @@ pub struct App {
 
 impl Default for App {
     fn default() -> Self {
-        App {
-            focus: Pane::default(),
+        let mut app = App {
+            focus: Focus::default(),
             quit: false,
             status: None,
             pairs: Vec::new(),
-            pair_pick: Pick::default(),
-            report_pick: Pick::new(Report::ALL.len()),
-            option: 0,
-            json: false,
-            mode: Mode::Totals,
-            jobs: None,
+            line: String::new(),
+            cursor: 0,
+            suggestions: Vec::new(),
+            pick: 0,
+            details: (String::new(), Vec::new()),
             root: std::path::PathBuf::from("."),
             program: "antlion".to_string(),
             tabs: Vec::new(),
@@ -338,17 +228,20 @@ impl Default for App {
             presets: Vec::new(),
             quit_asked: false,
             g: false,
-        }
+        };
+        app.refresh();
+        app
     }
 }
 
 impl App {
     pub fn new(pairs: Vec<Pair>) -> Self {
-        App {
-            pair_pick: Pick::new(pairs.len()),
+        let mut app = App {
             pairs,
             ..App::default()
-        }
+        };
+        app.refresh();
+        app
     }
 
     pub fn running(&self) -> bool {
@@ -364,6 +257,29 @@ impl App {
         self.tabs.get_mut(self.tab)
     }
 
+    /// The arguments of the command line, without the program name.
+    pub fn args(&self) -> Vec<String> {
+        self.line.split_whitespace().map(String::from).collect()
+    }
+
+    /// The text of the command line up to the cursor.
+    pub fn before(&self) -> &str {
+        &self.line[..self.cursor]
+    }
+
+    /// Find the words that can come at the cursor again, and the details of the one under
+    /// the cursor of the suggestions pane.
+    fn refresh(&mut self) {
+        self.suggestions = complete::suggest(self.before(), &self.pairs);
+        self.pick = self.pick.min(self.suggestions.len().saturating_sub(1));
+        self.details = complete::details(
+            self.suggestions.get(self.pick),
+            self.before(),
+            &self.root,
+            &self.pairs,
+        );
+    }
+
     /// Take the new output of each run, and search it. When a build ends, read the build
     /// state of the pairs again.
     pub fn tick(&mut self) {
@@ -373,7 +289,7 @@ impl App {
             let was = t.run.running();
             t.run.poll();
             built |= t.kind == Kind::Build && was && !t.run.running();
-            if t.kind == Kind::Compare
+            if t.kind != Kind::Task
                 && was
                 && let Some((end, time)) = t.run.end
             {
@@ -408,9 +324,9 @@ impl App {
         self.history.drain(..from);
     }
 
-    /// Save the selection as the preset `name` in the config file.
+    /// Save the command line as the preset `name` in the config file.
     fn save_preset(&mut self, name: &str) {
-        let args = self.selection().args();
+        let args = self.args();
         if let Some(e) = command::refusal(&args) {
             self.status = Some(format!("not saved: {e}"));
             return;
@@ -425,92 +341,28 @@ impl App {
         });
     }
 
-    /// Set the lists and the options to what `args` selects. A pair that is not in the
-    /// list is left out, and the status says so.
+    /// Put `args` into the command line, with the cursor after a space at its end, so the
+    /// suggestions show what can come next.
     fn load(&mut self, args: &[String]) {
-        let Ok(crate::cli::Command::Compare(c)) = crate::cli::parse(args) else {
-            self.status = Some(format!("cannot load: {}", command::line(args)));
-            return;
-        };
-        self.pair_pick.on.fill(false);
-        let mut missing = Vec::new();
-        for name in &c.names {
-            match self.pairs.iter().position(|p| &p.name == name) {
-                Some(i) => self.pair_pick.on[i] = true,
-                None => missing.push(name.as_str()),
-            }
-        }
-        for (i, r) in Report::ALL.iter().enumerate() {
-            self.report_pick.on[i] = c.reports.contains(r);
-        }
-        (self.json, self.mode, self.jobs) = (c.json, c.mode, c.jobs);
-        self.status = Some(if missing.is_empty() {
-            "loaded: press r to run it".to_string()
-        } else {
-            format!(
-                "loaded, without the pairs that are not here: {}",
-                missing.join(", ")
-            )
-        });
+        self.line = format!("{} ", args.join(" "));
+        self.cursor = self.line.len();
+        self.focus = Focus::Line;
+        self.pick = 0;
+        self.refresh();
+        self.status = Some("loaded: press Enter to run it".to_string());
     }
 
-    /// Read the pairs again, and keep the selection and the cursor on the same names.
+    /// Read the pairs again, so the suggestions show a build made since.
     fn reload(&mut self) {
-        let on: Vec<&str> = self
-            .pairs
-            .iter()
-            .zip(&self.pair_pick.on)
-            .filter(|(_, on)| **on)
-            .map(|(p, _)| p.name.as_str())
-            .collect();
-        let cur = self.pair_pick.item().map(|i| self.pairs[i].name.clone());
-        let pairs = super::catalog::pairs(&self.root);
-        let mut pick = Pick::new(pairs.len());
-        for (i, p) in pairs.iter().enumerate() {
-            pick.on[i] = on.contains(&p.name.as_str());
-            if cur.as_deref() == Some(p.name.as_str()) {
-                pick.cur = i;
-            }
-        }
-        self.pairs = pairs;
-        self.pair_pick = pick;
-    }
-
-    /// Build every selected pair that has a source folder, in a new tab.
-    fn build(&mut self) {
-        if self.running() {
-            return;
-        }
-        let (src, none): (Vec<&Pair>, Vec<&Pair>) = self
-            .pairs
-            .iter()
-            .zip(&self.pair_pick.on)
-            .filter(|(_, on)| **on)
-            .map(|(p, _)| p)
-            .partition(|p| p.source);
-        self.status = (!none.is_empty()).then(|| {
-            let names: Vec<&str> = none.iter().map(|p| p.name.as_str()).collect();
-            format!("not built, no folder in contracts/: {}", names.join(", "))
-        });
-        if src.is_empty() {
-            if none.is_empty() {
-                self.status = Some("select a pair to build".to_string());
-            }
-            return;
-        }
-        let mut args = vec!["--build".to_string()];
-        args.extend(src.iter().map(|p| format!("contracts/{}", p.name)));
-        match Run::start(&self.program, args, &self.root) {
-            Ok(r) => self.add_kind(r, Kind::Build),
-            Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
-        }
+        self.pairs = super::catalog::pairs(&self.root);
+        self.refresh();
     }
 
     /// Run `scripts/check.sh task` in a new tab. `build` changes `out/`, so it counts as a
     /// build.
     fn task(&mut self, task: &str) {
         if self.running() {
-            self.status = Some("a run is active: wait for it, or press c".to_string());
+            self.status = Some("a run is active: wait for it, or cancel it".to_string());
             return;
         }
         let script = self.root.join("scripts/check.sh");
@@ -563,24 +415,11 @@ impl App {
             return;
         }
         match k.code {
-            KeyCode::Char(c) => {
-                p.text.push(c);
-                self.filter_live();
-            }
+            KeyCode::Char(c) => p.text.push(c),
             KeyCode::Backspace => {
                 p.text.pop();
-                self.filter_live();
             }
-            KeyCode::Esc => {
-                // `Esc` on a filter clears it, and shows every item again.
-                if let Some(Prompt {
-                    ask: Ask::Filter(pane),
-                    ..
-                }) = self.prompt.take()
-                {
-                    self.filter(pane, String::new());
-                }
-            }
+            KeyCode::Esc => self.prompt = None,
             KeyCode::Enter => {
                 let p = self.prompt.take().expect("the prompt is open");
                 match p.ask {
@@ -602,7 +441,6 @@ impl App {
                             t.show_line(l, h);
                         }
                     }
-                    Ask::Filter(_) | Ask::Palette | Ask::History | Ask::Presets => {}
                     Ask::PresetName if p.text.is_empty() => {}
                     Ask::PresetName => self.save_preset(&p.text),
                     Ask::Save if p.text.is_empty() => {}
@@ -613,6 +451,9 @@ impl App {
                         });
                     }
                     Ask::Save => self.save(&p.text),
+                    Ask::Palette | Ask::History | Ask::Presets => {
+                        unreachable!("the palette has its own keys")
+                    }
                     Ask::Overwrite | Ask::Confirm(_) => unreachable!("handled above"),
                 }
             }
@@ -620,63 +461,20 @@ impl App {
         }
     }
 
-    /// The help for the item under the cursor of the pane that has the focus.
-    fn info_at_cursor(&self) -> Option<(String, Vec<String>, usize)> {
-        use super::catalog;
-        let (title, lines) = match self.focus {
-            Pane::Pairs => {
-                let p = &self.pairs[self.pair_pick.item()?];
-                let mut lines = vec![format!("state: {}", p.state.label()), String::new()];
-                lines.extend(catalog::signatures(&self.root, &p.name));
-                (format!("pair {}", p.name), lines)
-            }
-            Pane::Reports => {
-                let r = self.report_at_cursor();
-                let lines = vec![
-                    r.about().to_string(),
-                    String::new(),
-                    format!("inputs: {}", catalog::inputs(r)),
-                ];
-                (format!("report {}", r.name()), lines)
-            }
-            Pane::Options => {
-                let flags: &[&str] = match OPTIONS[self.option] {
-                    "output" => &["--json"],
-                    "mode" => &["--detail", "--dump"],
-                    _ => &["--jobs"],
-                };
-                let lines = flags
-                    .iter()
-                    .flat_map(|f| [format!("{f}: {}", catalog::option_help(f)), String::new()])
-                    .collect();
-                (format!("option {}", OPTIONS[self.option]), lines)
-            }
-            Pane::Output => return None,
-        };
-        Some((title, lines, 0))
-    }
-
-    /// Every entry of the palette: the actions, then each pair, then each report.
+    /// Every entry of the palette.
     pub fn entries(&self) -> Vec<Entry> {
         let e = |label: &str, key, act| Entry {
             label: label.to_string(),
             key,
             act,
         };
-        let mut v = vec![
+        vec![
             e("help: every key, and the inputs", "?", Act::Help),
-            e("run the command", "r", Act::Run),
+            e("run the command", "Enter", Act::Run),
             e("copy the command", "y", Act::Copy),
-            e("build the selected pairs", "b", Act::Build),
             e("cancel the run", "c", Act::Cancel),
             e("save the output to a file", "s", Act::Save),
-            e("select every pair", "a", Act::AllPairs),
-            e("clear every pair", "A", Act::NoPairs),
-            e("select every report", "a", Act::AllReports),
-            e("clear every report", "A", Act::NoReports),
-            e("output: text or json", "", Act::Output),
-            e("mode: totals, detail or dump", "", Act::Mode),
-            e("history of runs", "H", Act::History),
+            e("history of runs", "Ctrl+R", Act::History),
             e(
                 "doctor: check the tools, out/ and the builds",
                 "",
@@ -703,17 +501,10 @@ impl App {
                 "",
                 Act::Task("time"),
             ),
-            e("save the selection as a preset", "", Act::SavePreset),
+            e("save the command as a preset", "", Act::SavePreset),
             e("load a preset", "", Act::Presets),
             e("quit", "q", Act::Quit),
-        ];
-        for (i, p) in self.pairs.iter().enumerate() {
-            v.push(e(&format!("pair {}", p.name), "", Act::Pair(i)));
-        }
-        for (i, r) in Report::ALL.iter().enumerate() {
-            v.push(e(&format!("report {}", r.name()), "", Act::Report(i)));
-        }
-        v
+        ]
     }
 
     /// The entries that match the text of the palette, the best match first.
@@ -798,17 +589,25 @@ impl App {
         self.palette_cur = self.palette_cur.min(n.saturating_sub(1));
     }
 
+    /// Open the prompt for `ask`, empty.
+    fn ask(&mut self, ask: Ask) {
+        self.palette_cur = 0;
+        self.prompt = Some(Prompt {
+            ask,
+            text: String::new(),
+        });
+    }
+
     /// Do what a palette entry says.
     fn act(&mut self, a: Act) {
         match a {
             Act::Help => self.help = Some(0),
             Act::Copy => {
-                let line = command::line(&self.selection().args());
+                let line = command::line(&self.args());
                 self.status = Some(format!("copied: {line}"));
                 self.copy = Some(line);
             }
             Act::Run => self.start(),
-            Act::Build => self.build(),
             Act::Cancel => self.tabs.iter_mut().for_each(|t| t.run.cancel()),
             Act::Save => {
                 if let Some(t) = self.current() {
@@ -819,30 +618,10 @@ impl App {
                 }
             }
             Act::Quit if self.running() => {
-                self.status = Some("a run is active: press c to stop it, then q".to_string())
+                self.status = Some("a run is active: cancel it first, then quit".to_string())
             }
             Act::Quit => self.quit = true,
-            Act::AllPairs => self.pair_pick.on.fill(true),
-            Act::NoPairs => self.pair_pick.on.fill(false),
-            Act::AllReports => self.report_pick.on.fill(true),
-            Act::NoReports => self.report_pick.on.fill(false),
-            Act::Output => self.json = !self.json,
-            Act::Mode => {
-                self.mode = match self.mode {
-                    Mode::Totals => Mode::Detail,
-                    Mode::Detail => Mode::Dump,
-                    Mode::Dump => Mode::Totals,
-                }
-            }
-            Act::Pair(i) => self.pair_pick.on[i] = !self.pair_pick.on[i],
-            Act::Report(i) => self.report_pick.on[i] = !self.report_pick.on[i],
-            Act::History => {
-                self.palette_cur = 0;
-                self.prompt = Some(Prompt {
-                    ask: Ask::History,
-                    text: String::new(),
-                });
-            }
+            Act::History => self.ask(Ask::History),
             Act::Task("save") => {
                 self.prompt = Some(Prompt {
                     ask: Ask::Confirm(Act::SaveGolden),
@@ -857,12 +636,7 @@ impl App {
                 let lines = super::catalog::doctor(&self.root, &self.pairs);
                 self.info = Some(("doctor".to_string(), lines, 0));
             }
-            Act::SavePreset => {
-                self.prompt = Some(Prompt {
-                    ask: Ask::PresetName,
-                    text: String::new(),
-                })
-            }
+            Act::SavePreset => self.ask(Ask::PresetName),
             Act::Presets => {
                 let Some(d) = &self.config_dir else {
                     self.status = Some("no config folder: set ANTLION_CONFIG_DIR or HOME".into());
@@ -875,11 +649,7 @@ impl App {
                     }
                     Ok(p) => {
                         self.presets = p;
-                        self.palette_cur = 0;
-                        self.prompt = Some(Prompt {
-                            ask: Ask::Presets,
-                            text: String::new(),
-                        });
+                        self.ask(Ask::Presets);
                     }
                 }
             }
@@ -895,32 +665,6 @@ impl App {
                     self.load(&args);
                 }
             }
-        }
-    }
-
-    /// Apply the text of an open filter prompt to its list.
-    fn filter_live(&mut self) {
-        if let Some(Prompt {
-            ask: Ask::Filter(pane),
-            text,
-        }) = &self.prompt
-        {
-            let (pane, text) = (*pane, text.clone());
-            self.filter(pane, text);
-        }
-    }
-
-    /// Show only the items of the list of `pane` that fuzzy match `text`.
-    fn filter(&mut self, pane: Pane, text: String) {
-        let names: Vec<&str> = match pane {
-            Pane::Pairs => self.pairs.iter().map(|p| p.name.as_str()).collect(),
-            Pane::Reports => Report::ALL.iter().map(|r| r.name()).collect(),
-            Pane::Options | Pane::Output => return,
-        };
-        let shown = (!text.is_empty()).then(|| super::search::fuzzy(&text, &names));
-        match pane {
-            Pane::Pairs => self.pair_pick.show(text, shown),
-            _ => self.report_pick.show(text, shown),
         }
     }
 
@@ -948,14 +692,24 @@ impl App {
         }
     }
 
-    /// Start the command of the selection, unless the CLI refuses it or a run is active.
+    /// Start the command line, unless the CLI refuses it or a run is active.
     fn start(&mut self) {
-        let args = self.selection().args();
-        if command::refusal(&args).is_some() || self.running() {
+        let args = self.args();
+        if let Some(e) = command::refusal(&args) {
+            self.status = Some(format!("not run: {e}"));
             return;
         }
+        if self.running() {
+            self.status = Some("a run is active: wait for it, or cancel it".to_string());
+            return;
+        }
+        let kind = if args[0] == "--build" {
+            Kind::Build
+        } else {
+            Kind::Run
+        };
         match Run::start(&self.program, args, &self.root) {
-            Ok(r) => self.add_tab(r),
+            Ok(r) => self.add_kind(r, kind),
             Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
         }
     }
@@ -1002,12 +756,7 @@ impl App {
             KeyCode::Char('l') | KeyCode::Right => t.left += 8,
             KeyCode::Char('h') | KeyCode::Left => t.left = t.left.saturating_sub(8),
             KeyCode::Char('0') => t.left = 0,
-            KeyCode::Char('/') => {
-                self.prompt = Some(Prompt {
-                    ask: Ask::Search,
-                    text: String::new(),
-                })
-            }
+            KeyCode::Char('/') => self.ask(Ask::Search),
             KeyCode::Char('s') => {
                 self.prompt = Some(Prompt {
                     ask: Ask::Save,
@@ -1021,77 +770,124 @@ impl App {
         true
     }
 
-    /// The keys of the options pane. True when the key was one of them.
-    fn option_key(&mut self, code: KeyCode) -> bool {
-        match code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                self.option = (self.option + 1).min(OPTIONS.len() - 1)
+    /// The char before the cursor starts at this byte; 0 at the start of the line.
+    fn char_before(&self) -> usize {
+        self.before()
+            .chars()
+            .next_back()
+            .map_or(0, |c| self.cursor - c.len_utf8())
+    }
+
+    /// The char after the cursor ends at this byte; the cursor at the end of the line.
+    fn char_after(&self) -> usize {
+        self.line[self.cursor..]
+            .chars()
+            .next()
+            .map_or(self.cursor, |c| self.cursor + c.len_utf8())
+    }
+
+    /// Put the suggestion under the cursor in place of the word typed so far, and a space
+    /// after it, so the next suggestions show at once.
+    fn accept(&mut self) {
+        let Some(s) = self.suggestions.get(self.pick) else {
+            return;
+        };
+        let start = self.cursor - complete::word(self.before()).len();
+        let text = s.text.clone();
+        self.line.replace_range(start..self.cursor, &text);
+        self.cursor = start + text.len();
+        if !self.line[self.cursor..].starts_with(' ') {
+            self.line.insert(self.cursor, ' ');
+        }
+        self.cursor += 1;
+    }
+
+    /// The keys of the command line.
+    fn line_key(&mut self, k: KeyEvent) {
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = k.modifiers.contains(KeyModifiers::ALT);
+        let was = (self.line.clone(), self.cursor);
+        match k.code {
+            KeyCode::Char('u') if ctrl => {
+                self.line.replace_range(..self.cursor, "");
+                self.cursor = 0;
             }
-            KeyCode::Char('k') | KeyCode::Up => self.option = self.option.saturating_sub(1),
-            KeyCode::Char(' ') | KeyCode::Enter => match OPTIONS[self.option] {
-                "output" => self.act(Act::Output),
-                "mode" => self.act(Act::Mode),
-                _ => {}
-            },
-            // `auto` is below 1, so the number never goes under 1.
-            KeyCode::Char('+') => self.jobs = Some(self.jobs.map_or(1, |n| (n + 1).min(MAX_JOBS))),
-            KeyCode::Char('-') => self.jobs = self.jobs.and_then(|n| (n > 1).then(|| n - 1)),
-            _ => return false,
+            KeyCode::Char('w') if ctrl => {
+                let head = self.before().trim_end();
+                let start = head.rfind(' ').map_or(0, |i| i + 1);
+                self.line.replace_range(start..self.cursor, "");
+                self.cursor = start;
+            }
+            KeyCode::Char(c) if !ctrl && !alt => {
+                self.line.insert(self.cursor, c);
+                self.cursor += c.len_utf8();
+            }
+            KeyCode::Backspace if self.cursor > 0 => {
+                let at = self.char_before();
+                self.line.replace_range(at..self.cursor, "");
+                self.cursor = at;
+            }
+            KeyCode::Delete => {
+                let to = self.char_after();
+                self.line.replace_range(self.cursor..to, "");
+            }
+            KeyCode::Left => self.cursor = self.char_before(),
+            KeyCode::Right => self.cursor = self.char_after(),
+            KeyCode::Home => self.cursor = 0,
+            KeyCode::End => self.cursor = self.line.len(),
+            KeyCode::Up => self.pick = self.pick.saturating_sub(1),
+            KeyCode::Down => self.pick += 1,
+            KeyCode::Tab => self.accept(),
+            KeyCode::Enter => self.start(),
+            KeyCode::Esc => self.focus = Focus::Output,
+            _ => {}
         }
-        true
-    }
-
-    /// The text of each row of the options pane.
-    pub fn option_values(&self) -> [String; 3] {
-        let mode = match self.mode {
-            Mode::Totals => "totals",
-            Mode::Detail => "detail",
-            Mode::Dump => "dump",
-        };
-        [
-            (if self.json { "json" } else { "text" }).to_string(),
-            mode.to_string(),
-            self.jobs.map_or("auto".to_string(), |n| n.to_string()),
-        ]
-    }
-
-    /// What the lists and the options have selected: pairs in list order, reports in
-    /// `Report::ALL` order.
-    pub fn selection(&self) -> Selection {
-        let picked = |pick: &Pick| {
-            pick.on
-                .iter()
-                .enumerate()
-                .filter(|(_, on)| **on)
-                .map(|(i, _)| i)
-                .collect::<Vec<_>>()
-        };
-        Selection {
-            pairs: picked(&self.pair_pick)
-                .into_iter()
-                .map(|i| self.pairs[i].name.clone())
-                .collect(),
-            reports: picked(&self.report_pick)
-                .into_iter()
-                .map(|i| Report::ALL[i])
-                .collect(),
-            json: self.json,
-            mode: self.mode,
-            jobs: self.jobs,
+        // A new word gets new suggestions, so the cursor goes back to the best one.
+        if (&self.line, self.cursor) != (&was.0, was.1) {
+            self.pick = 0;
         }
+        self.refresh();
     }
 
-    /// The report under the cursor of the reports pane.
-    pub fn report_at_cursor(&self) -> Report {
-        Report::ALL[self.report_pick.item().unwrap_or(0)]
+    /// The keys while the output pane has the focus.
+    fn output_focus_key(&mut self, k: KeyEvent) {
+        let g = std::mem::take(&mut self.g);
+        let quit_asked = std::mem::take(&mut self.quit_asked);
+        if k.code == KeyCode::Char('g') && !g {
+            self.g = true;
+            return;
+        }
+        if self.output_key(k, g) {
+            return;
+        }
+        match k.code {
+            KeyCode::Char('q') if quit_asked || !self.running() => self.quit = true,
+            KeyCode::Char('q') => {
+                self.quit_asked = true;
+                self.status =
+                    Some("a run is active: press q again to stop it and quit".to_string());
+            }
+            KeyCode::Char('c') => self.act(Act::Cancel),
+            KeyCode::Char('?') => self.help = Some(0),
+            KeyCode::Char('y') => self.act(Act::Copy),
+            KeyCode::Char('r') => self.start(),
+            KeyCode::Char('i') => self.focus = Focus::Line,
+            _ => {}
+        }
     }
 
     pub fn key(&mut self, k: KeyEvent) {
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        // Ctrl+C works everywhere, even while a box or a prompt is open.
+        if ctrl && k.code == KeyCode::Char('c') {
+            self.quit = true;
+            return;
+        }
         if let Some((_, _, top)) = &mut self.info {
             match k.code {
                 KeyCode::Char('j') | KeyCode::Down => *top += 1,
                 KeyCode::Char('k') | KeyCode::Up => *top = top.saturating_sub(1),
-                KeyCode::Esc | KeyCode::Char('K' | 'q') => self.info = None,
+                KeyCode::Esc | KeyCode::Char('q') => self.info = None,
                 _ => {}
             }
             return;
@@ -1109,74 +905,13 @@ impl App {
             self.prompt_key(k);
             return;
         }
-        let g = std::mem::take(&mut self.g);
-        let quit_asked = std::mem::take(&mut self.quit_asked);
-        let list = match self.focus {
-            Pane::Pairs => Some(&mut self.pair_pick),
-            Pane::Reports => Some(&mut self.report_pick),
-            _ => None,
-        };
-        if let Some(list) = list {
-            if k.code == KeyCode::Char('g') && !g {
-                self.g = true;
-                return;
-            }
-            if k.code == KeyCode::Char('/') {
-                let text = list.filter.clone();
-                self.prompt = Some(Prompt {
-                    ask: Ask::Filter(self.focus),
-                    text,
-                });
-                return;
-            }
-            if list.key(k.code, g) {
-                return;
-            }
-        }
-
-        if self.focus == Pane::Options && self.option_key(k.code) {
-            return;
-        }
-        if self.focus == Pane::Output {
-            if k.code == KeyCode::Char('g') && !g {
-                self.g = true;
-                return;
-            }
-            if self.output_key(k, g) {
-                return;
-            }
-        }
-
         match k.code {
-            KeyCode::Char('q') if quit_asked || !self.running() => self.quit = true,
-            KeyCode::Char('q') => {
-                self.quit_asked = true;
-                self.status =
-                    Some("a run is active: press q again to stop it and quit".to_string());
-            }
-            KeyCode::Char('c') if k.modifiers.is_empty() => {
-                for t in &mut self.tabs {
-                    t.run.cancel();
-                }
-            }
-            KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
-            KeyCode::Char('?') => self.help = Some(0),
-            KeyCode::Char('y') => self.act(Act::Copy),
-            KeyCode::Char('H') => self.act(Act::History),
-            KeyCode::Char('K') => self.info = self.info_at_cursor(),
-            KeyCode::Char(':') => {
-                self.palette_cur = 0;
-                self.prompt = Some(Prompt {
-                    ask: Ask::Palette,
-                    text: String::new(),
-                });
-            }
-            KeyCode::Char('r') => self.start(),
-            KeyCode::Char('b') => self.build(),
-            KeyCode::Tab => self.focus = self.focus.next(1),
-            KeyCode::BackTab => self.focus = self.focus.next(-1),
-            KeyCode::Char(c @ '1'..='4') => self.focus = Pane::ALL[c as usize - '1' as usize],
-            _ => {}
+            KeyCode::Char('p') if ctrl => self.ask(Ask::Palette),
+            KeyCode::Char('r') if ctrl => self.act(Act::History),
+            _ => match self.focus {
+                Focus::Line => self.line_key(k),
+                Focus::Output => self.output_focus_key(k),
+            },
         }
     }
 }
@@ -1197,6 +932,14 @@ mod tests {
         }
     }
 
+    fn enter(app: &mut App) {
+        press(app, KeyCode::Enter, KeyModifiers::NONE);
+    }
+
+    fn ctrl(app: &mut App, c: char) {
+        press(app, KeyCode::Char(c), KeyModifiers::CONTROL);
+    }
+
     fn pair(name: &str) -> Pair {
         Pair {
             name: name.to_string(),
@@ -1205,156 +948,151 @@ mod tests {
         }
     }
 
-    #[test]
-    fn pairs_list() {
-        let mut app = App::new(vec![pair("a"), pair("b"), pair("c")]);
-        keys(&mut app, "k");
-        assert_eq!(app.pair_pick.cur, 0);
-        keys(&mut app, "jj j");
-        assert_eq!(app.pair_pick.cur, 2);
-        assert_eq!(app.pair_pick.on, [false, false, true]);
-        keys(&mut app, "gg ");
-        assert_eq!(app.pair_pick.on, [true, false, true]);
-        keys(&mut app, "G");
-        assert_eq!(app.pair_pick.cur, 2);
-        keys(&mut app, "A");
-        assert_eq!(app.pair_pick.count(), 0);
-        keys(&mut app, "a");
-        assert_eq!(app.pair_pick.count(), 3);
-
-        // One `g` and then another key is not `gg`.
-        keys(&mut app, "gjG");
-        assert_eq!(app.pair_pick.cur, 2);
-
-        // An empty list takes every key.
-        let mut app = App::new(Vec::new());
-        keys(&mut app, "jkG gg aA");
-        assert_eq!(app.pair_pick.cur, 0);
+    fn texts(app: &App) -> Vec<&str> {
+        app.suggestions.iter().map(|s| s.text.as_str()).collect()
     }
 
     #[test]
-    fn filter() {
-        let names = [
-            "scalar_store",
-            "storage",
-            "struct_class",
-            "struct_store",
-            "ttl",
-        ];
-        let mut app = App::new(names.iter().map(|n| pair(n)).collect());
-        app.pair_pick.on[4] = true;
-        keys(&mut app, "/stc");
-        assert_eq!(app.pair_pick.rows(), [2, 3]);
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        // The keys act on the rows shown.
-        keys(&mut app, "j ");
-        assert_eq!(app.pair_pick.on, [false, false, false, true, true]);
-        keys(&mut app, "a");
-        assert_eq!(app.pair_pick.on, [false, false, true, true, true]);
-        keys(&mut app, "A");
-        assert_eq!(app.pair_pick.on, [false, false, false, false, true]);
-
-        // `/` opens the filter with its text; Backspace widens it as the user types.
-        keys(&mut app, "/");
-        assert_eq!(app.prompt.as_ref().unwrap().text, "stc");
+    fn typing() {
+        let mut app = App::default();
+        // Every character is text in the command line, `q` too.
+        keys(&mut app, "--compare flw");
+        assert!(!app.quit);
+        assert_eq!(app.line, "--compare flw");
+        // Fix the typo: one left, a delete, then the right letters.
+        press(&mut app, KeyCode::Left, KeyModifiers::NONE);
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
-        assert_eq!(app.pair_pick.rows(), [0, 1, 2, 3]);
-        // `Esc` clears the filter and keeps the selection.
-        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!(app.pair_pick.rows().len(), 5);
-        assert_eq!(app.pair_pick.on, [false, false, false, false, true]);
+        keys(&mut app, "lo");
+        assert_eq!(app.line, "--compare flow");
+        press(&mut app, KeyCode::Home, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Delete, KeyModifiers::NONE);
+        assert_eq!(app.line, "-compare flow");
+        press(&mut app, KeyCode::End, KeyModifiers::NONE);
+        ctrl(&mut app, 'w');
+        assert_eq!(app.line, "-compare ");
+        ctrl(&mut app, 'u');
+        assert_eq!((app.line.as_str(), app.cursor), ("", 0));
+        // Keys at the ends of the line do nothing.
+        press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Left, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Delete, KeyModifiers::NONE);
+        assert_eq!((app.line.as_str(), app.cursor), ("", 0));
+    }
 
-        // A filter that matches nothing shows no row, and the keys do nothing.
-        keys(&mut app, "/zzz");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        keys(&mut app, " jGa");
-        assert_eq!(app.pair_pick.item(), None);
-        assert_eq!(app.pair_pick.count(), 1);
+    #[test]
+    fn suggestions_follow_the_line() {
+        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
+        assert_eq!(texts(&app)[0], "--compare");
+        keys(&mut app, "--c");
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.line, "--compare ");
+        assert_eq!(texts(&app), ["flow", "numeric"]);
+        // Down picks the next suggestion, and Tab puts it in.
+        press(&mut app, KeyCode::Down, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.line, "--compare numeric ");
+        assert_eq!(texts(&app), ["flow", "--report"]);
+        keys(&mut app, "--r");
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        // The word typed filters the reports, the best match first.
+        keys(&mut app, "co");
+        assert_eq!(texts(&app)[0], "cost");
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.line, "--compare numeric --report cost ");
+        // The cursor never goes past the last suggestion.
+        for _ in 0..50 {
+            press(&mut app, KeyCode::Down, KeyModifiers::NONE);
+        }
+        assert_eq!(app.pick, app.suggestions.len() - 1);
+        // Typing puts it back on the best one.
+        keys(&mut app, "-");
+        assert_eq!(app.pick, 0);
+    }
+
+    #[test]
+    fn accept_in_the_middle() {
+        let mut app = App::new(vec![pair("flow")]);
+        keys(&mut app, "--compare fl --report size");
+        for _ in 0.." --report size".len() {
+            press(&mut app, KeyCode::Left, KeyModifiers::NONE);
+        }
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        // The space that was there is kept, and no second one is added.
+        assert_eq!(app.line, "--compare flow --report size");
+        assert_eq!(&app.line[app.cursor..], "--report size");
+    }
+
+    #[test]
+    fn run_only_what_the_cli_takes() {
+        let mut app = App::default();
+        keys(&mut app, "--compare flow");
+        enter(&mut app);
+        assert!(app.tabs.is_empty());
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("not run: no report requested"))
+        );
     }
 
     #[test]
     fn palette() {
-        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
-        keys(&mut app, ":cost");
-        assert_eq!(app.palette_hits()[0].label, "report cost");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        let mut app = App::default();
+        ctrl(&mut app, 'p');
+        keys(&mut app, "help");
+        assert_eq!(app.palette_hits()[0].act, Act::Help);
+        enter(&mut app);
         assert!(app.prompt.is_none());
-        assert_eq!(app.selection().reports, [Report::Cost]);
-
-        // Down moves to the next match; `Esc` closes and does nothing.
-        keys(&mut app, ":numer");
-        assert_eq!(app.palette_hits()[0].act, Act::Pair(1));
+        assert_eq!(app.help, Some(0));
         press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!(app.pair_pick.count(), 0);
-        keys(&mut app, ":pair");
-        let row = app
-            .palette_hits()
-            .iter()
-            .position(|e| e.label == "pair numeric")
-            .unwrap();
-        assert!(row > 0);
-        for _ in 0..row {
-            press(&mut app, KeyCode::Down, KeyModifiers::NONE);
-        }
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.selection().pairs, ["numeric"]);
 
         // While the palette is open, its keys are text: `q` does not quit.
-        keys(&mut app, ":quit");
+        ctrl(&mut app, 'p');
+        keys(&mut app, "quit");
         assert!(!app.quit);
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        // `Esc` closes it and does nothing.
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert!(!app.quit && app.prompt.is_none());
+        ctrl(&mut app, 'p');
+        keys(&mut app, "quit");
+        enter(&mut app);
         assert!(app.quit);
 
         // No match, and `Enter` does nothing.
         let mut app = App::default();
-        keys(&mut app, ":zzzzz");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        ctrl(&mut app, 'p');
+        keys(&mut app, "zzzzz");
+        enter(&mut app);
         assert!(!app.quit && app.prompt.is_none());
     }
 
     #[test]
     fn help() {
-        let mut app = App::default();
+        let mut app = App {
+            focus: Focus::Output,
+            ..App::default()
+        };
         keys(&mut app, "?");
         assert_eq!(app.help, Some(0));
         // While help is open, keys scroll it and do nothing else.
-        keys(&mut app, "jjk2r");
+        keys(&mut app, "jjkir");
         assert_eq!(app.help, Some(1));
-        assert_eq!(app.focus, Pane::Pairs);
+        assert_eq!(app.focus, Focus::Output);
         keys(&mut app, "q");
         assert_eq!(app.help, None);
         assert!(!app.quit);
-        keys(&mut app, ":help");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.help, Some(0));
-        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!(app.help, None);
-    }
-
-    #[test]
-    fn info() {
-        let mut app = App::default();
-        keys(&mut app, "K");
-        // No pair, so no help for one.
-        assert!(app.info.is_none());
-        keys(&mut app, "2jjjjjjK");
-        let (title, lines, _) = app.info.clone().unwrap();
-        assert_eq!(title, "report cost");
-        assert!(lines[0].starts_with("metered cost of calling"));
-        assert!(lines[2].contains("cost to fail"));
-        keys(&mut app, "q");
-        assert!(app.info.is_none() && !app.quit);
-        keys(&mut app, "3jjK");
-        let (title, lines, _) = app.info.clone().unwrap();
-        assert_eq!(title, "option jobs");
-        assert!(lines[0].starts_with("--jobs: threads"));
     }
 
     #[test]
     fn copy() {
-        let mut app = App::new(vec![pair("flow")]);
-        keys(&mut app, " y");
-        assert_eq!(app.copy.as_deref(), Some("antlion --compare flow --report"));
+        let mut app = App::default();
+        keys(&mut app, "--compare flow   --report size");
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        keys(&mut app, "y");
+        assert_eq!(
+            app.copy.as_deref(),
+            Some("antlion --compare flow --report size")
+        );
         assert!(
             app.status
                 .as_deref()
@@ -1367,7 +1105,6 @@ mod tests {
         let d = super::super::catalog::tests::scratch("app-history");
         let mut app = App::new(vec![pair("flow"), pair("numeric")]);
         app.state_dir = Some(d.clone());
-        app.program = "sh".to_string();
 
         // A run that ends goes into the history, in memory and in the file.
         let args: Vec<String> = ["-c", "true"].map(String::from).to_vec();
@@ -1382,83 +1119,72 @@ mod tests {
         assert_eq!(app.history[0].exit, Some(0));
         assert_eq!(super::super::store::history(&d).len(), 1);
 
-        // Loading a run sets the lists and the options, and leaves out unknown pairs.
+        // Loading a run puts it in the command line, from the output pane too.
         app.history.push(super::super::store::Record::new(
-            [
-                "--compare",
-                "numeric",
-                "gone",
-                "--report",
-                "cost",
-                "--json",
-                "--jobs",
-                "2",
-            ]
-            .map(String::from)
-            .to_vec(),
+            ["--compare", "numeric", "--report", "cost", "--json"]
+                .map(String::from)
+                .to_vec(),
             Some(0),
             1.0,
         ));
-        keys(&mut app, "H");
+        app.focus = Focus::Output;
+        ctrl(&mut app, 'r');
         assert!(
             app.palette_hits()[0]
                 .label
-                .starts_with("antlion --compare numeric gone")
+                .starts_with("antlion --compare numeric --report cost --json   done")
         );
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        let s = app.selection();
-        assert_eq!(s.pairs, ["numeric"]);
-        assert_eq!(s.reports, [Report::Cost]);
-        assert_eq!((s.json, s.jobs), (true, Some(2)));
-        assert!(
-            app.status
-                .as_deref()
-                .is_some_and(|x| x.ends_with("not here: gone"))
-        );
+        enter(&mut app);
+        assert_eq!(app.line, "--compare numeric --report cost --json ");
+        assert_eq!(app.cursor, app.line.len());
+        assert_eq!(app.focus, Focus::Line);
+        assert_eq!(texts(&app), ["--detail", "--dump", "--jobs"]);
     }
 
     #[test]
     fn presets() {
         let d = super::super::catalog::tests::scratch("app-presets");
-        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
-        app.config_dir = Some(d.clone());
-        keys(&mut app, ":load a preset");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        let mut app = App {
+            config_dir: Some(d.clone()),
+            ..App::default()
+        };
+        let palette = |app: &mut App, text: &str| {
+            ctrl(app, 'p');
+            keys(app, text);
+            enter(app);
+        };
+        palette(&mut app, "load a preset");
         assert!(
             app.status
                 .as_deref()
                 .is_some_and(|s| s.starts_with("no preset yet"))
         );
 
-        // A selection the CLI refuses is not saved.
-        keys(&mut app, ":save the selection");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        // A command the CLI refuses is not saved.
+        keys(&mut app, "--compare numeric");
+        palette(&mut app, "save the command");
         keys(&mut app, "bad");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        enter(&mut app);
         assert!(
             app.status
                 .as_deref()
                 .is_some_and(|s| s.starts_with("not saved"))
         );
 
-        keys(&mut app, "j 2jjjjjj ");
-        keys(&mut app, ":save the selection");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, " --report cost");
+        palette(&mut app, "save the command");
         keys(&mut app, "cost of numeric");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        enter(&mut app);
         assert_eq!(
             app.status.as_deref(),
             Some("saved the preset cost of numeric")
         );
 
-        keys(&mut app, "1A2A");
-        assert_eq!(app.selection().pairs.len(), 0);
-        keys(&mut app, ":load a preset");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        ctrl(&mut app, 'u');
+        palette(&mut app, "load a preset");
         assert!(app.palette_hits()[0].label.starts_with("cost of numeric"));
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(app.selection().pairs, ["numeric"]);
-        assert_eq!(app.selection().reports, [Report::Cost]);
+        enter(&mut app);
+        assert_eq!(app.line, "--compare numeric --report cost ");
     }
 
     #[test]
@@ -1483,9 +1209,13 @@ mod tests {
             }
             app.tick();
         };
+        let palette = |app: &mut App, text: &str| {
+            ctrl(app, 'p');
+            keys(app, text);
+            enter(app);
+        };
 
-        keys(&mut app, ":check.sh diff");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        palette(&mut app, "check.sh diff");
         finish(&mut app);
         assert_eq!(app.tabs[0].run.lines[0].text, "task diff");
         assert_eq!(app.tabs[0].title(), "scripts/check.sh diff");
@@ -1494,71 +1224,28 @@ mod tests {
         assert!(app.history.is_empty());
 
         // `save` asks first; any key but `y` does nothing.
-        keys(&mut app, ":check.sh save");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        palette(&mut app, "check.sh save");
         keys(&mut app, "n");
         assert_eq!(app.tabs.len(), 1);
-        keys(&mut app, ":check.sh save");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        palette(&mut app, "check.sh save");
         keys(&mut app, "y");
         finish(&mut app);
         assert_eq!(app.tabs[1].run.lines[0].text, "task save");
 
-        keys(&mut app, ":check.sh build");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        palette(&mut app, "check.sh build");
         assert_eq!(app.tabs[2].kind, Kind::Build);
     }
 
     #[test]
-    fn reports_list() {
-        let mut app = App::default();
-        keys(&mut app, "2");
-        assert_eq!(app.focus, Pane::Reports);
-        keys(&mut app, "jj ");
-        assert_eq!(app.report_at_cursor(), Report::Imports);
-        assert!(app.report_pick.on[2]);
-        keys(&mut app, "G");
-        assert_eq!(app.report_at_cursor(), Report::Layout);
-        keys(&mut app, "a");
-        assert_eq!(app.report_pick.count(), Report::ALL.len());
-        // The pairs keep their own cursor and selection.
-        assert_eq!(app.pair_pick.count(), 0);
-    }
-
-    #[test]
-    fn options() {
-        let mut app = App::default();
-        keys(&mut app, "3");
-        assert_eq!(app.option_values(), ["text", "totals", "auto"]);
-        keys(&mut app, " ");
-        assert!(app.json);
-        keys(&mut app, "j   ");
-        assert_eq!(app.mode, Mode::Totals);
-        keys(&mut app, " ");
-        assert_eq!(app.mode, Mode::Detail);
-        keys(&mut app, " ");
-        assert_eq!(app.mode, Mode::Dump);
-        keys(&mut app, "jjj");
-        assert_eq!(OPTIONS[app.option], "jobs");
-
-        keys(&mut app, "-");
-        assert_eq!(app.jobs, None);
-        keys(&mut app, "++");
-        assert_eq!(app.jobs, Some(2));
-        keys(&mut app, "---");
-        assert_eq!(app.jobs, None);
-        for _ in 0..100 {
-            keys(&mut app, "+");
-        }
-        assert_eq!(app.jobs, Some(MAX_JOBS));
-    }
-
-    #[test]
     fn quit_during_a_run() {
-        let mut app = App::default();
-        app.tabs.push(Tab::new(
-            Run::start("sleep", vec!["30".into()], Path::new(".")).unwrap(),
-        ));
+        let sleeping = || App {
+            focus: Focus::Output,
+            tabs: vec![Tab::new(
+                Run::start("sleep", vec!["30".into()], Path::new(".")).unwrap(),
+            )],
+            ..App::default()
+        };
+        let mut app = sleeping();
         keys(&mut app, "q");
         assert!(!app.quit);
         assert!(
@@ -1570,10 +1257,7 @@ mod tests {
         assert!(app.quit);
 
         // Any other key in between asks again.
-        let mut app = App::default();
-        app.tabs.push(Tab::new(
-            Run::start("sleep", vec!["30".into()], Path::new(".")).unwrap(),
-        ));
+        let mut app = sleeping();
         keys(&mut app, "qjq");
         assert!(!app.quit);
 
@@ -1592,7 +1276,7 @@ mod tests {
         App {
             tabs: vec![Tab::new(r)],
             view_height: h,
-            focus: Pane::Output,
+            focus: Focus::Output,
             ..App::default()
         }
     }
@@ -1607,9 +1291,9 @@ mod tests {
         assert_eq!(app.output_top(), 0);
         keys(&mut app, "k");
         assert_eq!(app.output_top(), 0);
-        press(&mut app, KeyCode::Char('d'), KeyModifiers::CONTROL);
+        ctrl(&mut app, 'd');
         assert_eq!(app.output_top(), 5);
-        press(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL);
+        ctrl(&mut app, 'u');
         assert_eq!(app.output_top(), 0);
         keys(&mut app, "G");
         assert_eq!(app.tabs[0].top, None);
@@ -1637,7 +1321,7 @@ mod tests {
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         assert!(!app.quit);
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        enter(&mut app);
         let s = app.tabs[0].search.as_ref().unwrap();
         // 5, 15, 25, ... 95, and 50 to 59: 19 lines.
         assert_eq!(s.hits.len(), 19);
@@ -1670,7 +1354,7 @@ mod tests {
             press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         }
         keys(&mut app, &path);
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        enter(&mut app);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "1\n2\n3\n");
 
         // A file that is there needs a `y`; any other key keeps it.
@@ -1679,7 +1363,7 @@ mod tests {
             ask: Ask::Save,
             text: path.clone(),
         });
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        enter(&mut app);
         assert_eq!(app.prompt.as_ref().unwrap().ask, Ask::Overwrite);
         keys(&mut app, "n");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "old");
@@ -1687,7 +1371,7 @@ mod tests {
             ask: Ask::Save,
             text: path.clone(),
         });
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        enter(&mut app);
         keys(&mut app, "y");
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "1\n2\n3\n");
     }
@@ -1713,7 +1397,8 @@ mod tests {
             .status()
             .unwrap();
 
-        keys(&mut app, " jb");
+        keys(&mut app, "--build contracts/a");
+        enter(&mut app);
         assert_eq!(app.tabs[0].run.args, ["--build", "contracts/a"]);
         assert_eq!(app.tabs[0].kind, Kind::Build);
         let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -1723,32 +1408,14 @@ mod tests {
         app.tick();
         assert_eq!(app.pairs[0].state, State::Built);
         assert_eq!(app.pairs[1].state, State::None);
-        assert_eq!(app.pair_pick.on, [true, false]);
-        assert_eq!(app.pair_pick.cur, 1);
-    }
-
-    #[test]
-    fn build_needs_a_source() {
-        let mut app = App::new(vec![Pair {
-            name: "x".to_string(),
-            state: super::super::catalog::State::Built,
-            source: false,
-        }]);
-        keys(&mut app, "b");
-        assert_eq!(app.status.as_deref(), Some("select a pair to build"));
-        keys(&mut app, " b");
-        assert!(app.tabs.is_empty());
-        assert!(
-            app.status
-                .as_deref()
-                .is_some_and(|s| s.contains("no folder in contracts/: x"))
-        );
+        // A build goes into the history too.
+        assert_eq!(app.history.len(), 1);
     }
 
     #[test]
     fn tabs() {
         let mut app = App {
-            focus: Pane::Output,
+            focus: Focus::Output,
             view_height: 10,
             ..App::default()
         };
@@ -1775,7 +1442,7 @@ mod tests {
 
         // Each tab keeps its own scroll and search.
         keys(&mut app, "gg/7");
-        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        enter(&mut app);
         keys(&mut app, "]");
         assert_eq!(app.tab, 1);
         assert!(app.tabs[1].search.is_none());
@@ -1789,30 +1456,33 @@ mod tests {
     #[test]
     fn focus() {
         let mut app = App::default();
-        assert_eq!(app.focus, Pane::Pairs);
-        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(app.focus, Pane::Reports);
-        press(&mut app, KeyCode::BackTab, KeyModifiers::SHIFT);
-        press(&mut app, KeyCode::BackTab, KeyModifiers::SHIFT);
-        assert_eq!(app.focus, Pane::Output);
-        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(app.focus, Pane::Pairs);
-        press(&mut app, KeyCode::Char('3'), KeyModifiers::NONE);
-        assert_eq!(app.focus, Pane::Options);
-        press(&mut app, KeyCode::Char('4'), KeyModifiers::NONE);
-        assert_eq!(app.focus, Pane::Output);
+        assert_eq!(app.focus, Focus::Line);
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.focus, Focus::Output);
+        // In the output pane, `i` goes back to the command line, and types nothing.
+        keys(&mut app, "i");
+        assert_eq!(app.focus, Focus::Line);
+        assert_eq!(app.line, "");
     }
 
     #[test]
     fn q_and_ctrl_c_quit() {
-        let mut app = App::default();
+        let mut app = App {
+            focus: Focus::Output,
+            ..App::default()
+        };
         press(&mut app, KeyCode::Char('x'), KeyModifiers::NONE);
         assert!(!app.quit);
         press(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
         assert!(app.quit);
 
+        // Ctrl+C quits from the command line, and from an open prompt.
         let mut app = App::default();
-        press(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL);
+        ctrl(&mut app, 'c');
+        assert!(app.quit);
+        let mut app = App::default();
+        ctrl(&mut app, 'p');
+        ctrl(&mut app, 'c');
         assert!(app.quit);
     }
 }

@@ -1,9 +1,10 @@
-//! The terminal UI of `--interactive`: pick pairs, reports and options from lists, see the
-//! command they make, and run it.
+//! The terminal UI of `--interactive`: type a command with the words that can come next
+//! suggested, run it, and read its output.
 
 mod app;
 mod catalog;
 mod command;
+mod complete;
 mod runner;
 mod search;
 mod store;
@@ -41,20 +42,6 @@ pub fn run() -> Result<()> {
     app.status = catalog::root_warning(&dir);
     app.state_dir = store::state_dir();
     app.config_dir = store::config_dir();
-    if let Some(d) = &app.config_dir {
-        match store::defaults(d) {
-            Ok(o) => {
-                app.json = o.json.unwrap_or(app.json);
-                app.mode = o.mode.unwrap_or(app.mode);
-                app.jobs = o.jobs.or(app.jobs);
-            }
-            // A warning that the root is wrong matters more, so it stays.
-            Err(e) => {
-                app.status
-                    .get_or_insert(format!("{e}; using the built in defaults"));
-            }
-        }
-    }
     if let Some(d) = &app.state_dir {
         app.history = store::history(d);
     }
