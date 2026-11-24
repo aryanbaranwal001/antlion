@@ -9,7 +9,7 @@ use ratatui::{
     widgets::{Block, List, ListItem, ListState, Paragraph},
 };
 
-use super::app::{App, Pane, Pick};
+use super::app::{App, OPTIONS, Pane, Pick};
 use super::catalog::State;
 use crate::compare::Report;
 
@@ -73,7 +73,21 @@ pub fn draw(f: &mut Frame, app: &App) {
         rows,
         Some(about),
     );
-    pane(f, app, Pane::Options, options);
+    let cursor = if app.focus == Pane::Options {
+        Style::new().add_modifier(Modifier::REVERSED)
+    } else {
+        Style::new()
+    };
+    let rows: Vec<ListItem> = OPTIONS
+        .iter()
+        .zip(app.option_values())
+        .map(|(name, value)| ListItem::new(format!(" {name:<8} {value}")))
+        .collect();
+    let widget = List::new(rows)
+        .block(frame(app, Pane::Options).title(" Options "))
+        .highlight_style(cursor);
+    let mut state = ListState::default().with_selected(Some(app.option));
+    f.render_stateful_widget(widget, options, &mut state);
     pane(f, app, Pane::Output, output);
 
     f.render_widget(Paragraph::new(" $ antlion"), command);
@@ -94,7 +108,8 @@ pub fn draw(f: &mut Frame, app: &App) {
 fn hints(p: Pane) -> String {
     let own = match p {
         Pane::Pairs | Pane::Reports => "j/k move  Space select  a all  A none  ",
-        Pane::Options | Pane::Output => "",
+        Pane::Options => "j/k move  Space change  +/- jobs  ",
+        Pane::Output => "",
     };
     format!(" {own}Tab pane  1-4 jump  q quit")
 }
@@ -207,6 +222,17 @@ pub(super) mod tests {
         assert!(s[2].contains("[ ] sections"));
         // The description of `cost`, the report under the cursor, on the lower border.
         assert!(s.iter().any(|r| r.contains(" metered cost of calling")));
+    }
+
+    #[test]
+    fn options_pane() {
+        let mut app = App::default();
+        app.json = true;
+        app.jobs = Some(3);
+        let s = screen(&app, 100, 30);
+        assert!(s[1].contains(" output   json"));
+        assert!(s[2].contains(" mode     totals"));
+        assert!(s[3].contains(" jobs     3"));
     }
 
     #[test]

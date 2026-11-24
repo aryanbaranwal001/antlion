@@ -4,7 +4,14 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::catalog::Pair;
+use crate::cli::Mode;
 use crate::compare::Report;
+
+/// The most threads `+` gives.
+const MAX_JOBS: usize = 64;
+
+/// The rows of the options pane, in order.
+pub const OPTIONS: [&str; 3] = ["output", "mode", "jobs"];
 
 /// One box on the screen.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
@@ -94,6 +101,12 @@ pub struct App {
     pub pair_pick: Pick,
     /// One item for each report, in `Report::ALL` order.
     pub report_pick: Pick,
+    /// The row under the cursor of the options pane, in `OPTIONS`.
+    pub option: usize,
+    pub json: bool,
+    pub mode: Mode,
+    /// `None` leaves the number of threads to antlion.
+    pub jobs: Option<usize>,
     /// The first `g` of `gg` was pressed.
     g: bool,
 }
@@ -107,6 +120,10 @@ impl Default for App {
             pairs: Vec::new(),
             pair_pick: Pick::default(),
             report_pick: Pick::new(Report::ALL.len()),
+            option: 0,
+            json: false,
+            mode: Mode::Totals,
+            jobs: None,
             g: false,
         }
     }
@@ -119,6 +136,46 @@ impl App {
             pairs,
             ..App::default()
         }
+    }
+
+    /// The keys of the options pane. True when the key was one of them.
+    fn option_key(&mut self, code: KeyCode) -> bool {
+        match code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                self.option = (self.option + 1).min(OPTIONS.len() - 1)
+            }
+            KeyCode::Char('k') | KeyCode::Up => self.option = self.option.saturating_sub(1),
+            KeyCode::Char(' ') | KeyCode::Enter => match OPTIONS[self.option] {
+                "output" => self.json = !self.json,
+                "mode" => {
+                    self.mode = match self.mode {
+                        Mode::Totals => Mode::Detail,
+                        Mode::Detail => Mode::Dump,
+                        Mode::Dump => Mode::Totals,
+                    }
+                }
+                _ => {}
+            },
+            // `auto` is below 1, so the number never goes under 1.
+            KeyCode::Char('+') => self.jobs = Some(self.jobs.map_or(1, |n| (n + 1).min(MAX_JOBS))),
+            KeyCode::Char('-') => self.jobs = self.jobs.and_then(|n| (n > 1).then(|| n - 1)),
+            _ => return false,
+        }
+        true
+    }
+
+    /// The text of each row of the options pane.
+    pub fn option_values(&self) -> [String; 3] {
+        let mode = match self.mode {
+            Mode::Totals => "totals",
+            Mode::Detail => "detail",
+            Mode::Dump => "dump",
+        };
+        [
+            (if self.json { "json" } else { "text" }).to_string(),
+            mode.to_string(),
+            self.jobs.map_or("auto".to_string(), |n| n.to_string()),
+        ]
     }
 
     /// The report under the cursor of the reports pane.
@@ -141,6 +198,10 @@ impl App {
             if list.key(k.code, g) {
                 return;
             }
+        }
+
+        if self.focus == Pane::Options && self.option_key(k.code) {
+            return;
         }
 
         match k.code {
@@ -217,6 +278,34 @@ mod tests {
         assert_eq!(app.report_pick.count(), Report::ALL.len());
         // The pairs keep their own cursor and selection.
         assert_eq!(app.pair_pick.count(), 0);
+    }
+
+    #[test]
+    fn options() {
+        let mut app = App::default();
+        keys(&mut app, "3");
+        assert_eq!(app.option_values(), ["text", "totals", "auto"]);
+        keys(&mut app, " ");
+        assert!(app.json);
+        keys(&mut app, "j   ");
+        assert_eq!(app.mode, Mode::Totals);
+        keys(&mut app, " ");
+        assert_eq!(app.mode, Mode::Detail);
+        keys(&mut app, " ");
+        assert_eq!(app.mode, Mode::Dump);
+        keys(&mut app, "jjj");
+        assert_eq!(OPTIONS[app.option], "jobs");
+
+        keys(&mut app, "-");
+        assert_eq!(app.jobs, None);
+        keys(&mut app, "++");
+        assert_eq!(app.jobs, Some(2));
+        keys(&mut app, "---");
+        assert_eq!(app.jobs, None);
+        for _ in 0..100 {
+            keys(&mut app, "+");
+        }
+        assert_eq!(app.jobs, Some(MAX_JOBS));
     }
 
     #[test]
