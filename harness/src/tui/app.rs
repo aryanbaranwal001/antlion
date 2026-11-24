@@ -7,6 +7,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 pub struct App {
     /// The loop stops at the end of this pass.
     pub quit: bool,
+    /// One line for the status bar, such as a warning at start.
+    pub status: Option<String>,
 }
 
 impl App {

@@ -2,6 +2,7 @@
 //! command they make, and run it.
 
 mod app;
+mod catalog;
 mod ui;
 
 use std::{
@@ -29,9 +30,14 @@ pub fn run() -> Result<()> {
         ));
     }
 
+    let mut app = App::default();
+    if let Ok(dir) = std::env::current_dir() {
+        app.status = catalog::root_warning(&dir);
+    }
+
     // `init` also puts the terminal back when a panic happens, so the shell stays usable.
     let mut terminal = ratatui::init();
-    let out = event_loop(&mut terminal, &mut App::default());
+    let out = event_loop(&mut terminal, &mut app);
     ratatui::restore();
     out
 }
