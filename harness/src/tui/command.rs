@@ -56,6 +56,15 @@ impl Selection {
     }
 }
 
+/// Why the CLI refuses `args`, on one line, or `None` when it takes them. The TUI never
+/// runs what the CLI would refuse, and it says why in the CLI's own words.
+pub fn refusal(args: &[String]) -> Option<String> {
+    let e = crate::cli::parse(args).err()?;
+    let text = e.to_string();
+    let first = text.lines().next().unwrap_or_default();
+    Some(first.trim_start_matches("[err] ").to_string())
+}
+
 /// `args` as one line to type in a shell, after `antlion`.
 pub fn line(args: &[String]) -> String {
     let mut out = String::from("antlion");
@@ -173,6 +182,19 @@ mod tests {
             }
         }
         assert_eq!(n, 216);
+    }
+
+    #[test]
+    fn refusals() {
+        assert_eq!(
+            refusal(&sel(&[], &[Report::Size]).args()).as_deref(),
+            Some("no contract given")
+        );
+        assert!(
+            refusal(&sel(&["flow"], &[]).args())
+                .is_some_and(|e| e.starts_with("`--report` needs a report name"))
+        );
+        assert_eq!(refusal(&sel(&["flow"], &[Report::Size]).args()), None);
     }
 
     #[test]

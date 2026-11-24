@@ -90,8 +90,12 @@ pub fn draw(f: &mut Frame, app: &App) {
     f.render_stateful_widget(widget, options, &mut state);
     pane(f, app, Pane::Output, output);
 
-    let line = super::command::line(&app.selection().args());
-    f.render_widget(Paragraph::new(format!(" $ {line}")), command);
+    let args = app.selection().args();
+    let mut spans = vec![Span::raw(format!(" $ {}", super::command::line(&args)))];
+    if let Some(e) = super::command::refusal(&args) {
+        spans.push(Span::styled(format!("   {e}"), Style::new().fg(Color::Red)));
+    }
+    f.render_widget(Paragraph::new(Line::from(spans)), command);
     if let Some(s) = &app.status {
         f.render_widget(
             Paragraph::new(format!(" {s}")).style(Style::new().fg(Color::Yellow)),
@@ -191,7 +195,7 @@ pub(super) mod tests {
                 "{title} once"
             );
         }
-        assert!(s[21].starts_with(" $ antlion --compare --report"));
+        assert!(s[21].starts_with(" $ antlion --compare --report   no contract given"));
         assert!(s[23].contains("Tab pane"));
         assert!(s[23].contains("q quit"));
     }
