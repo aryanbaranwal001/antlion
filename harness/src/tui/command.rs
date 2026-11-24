@@ -129,6 +129,52 @@ mod tests {
         assert_eq!(shown(&s), "antlion --compare flow --report cost --dump");
     }
 
+    /// What `cli::parse` makes of the arguments, as a selection again.
+    fn parsed(args: &[String]) -> Selection {
+        match crate::cli::parse(args) {
+            Ok(crate::cli::Command::Compare(c)) => Selection {
+                pairs: c.names,
+                reports: c.reports,
+                json: c.json,
+                mode: c.mode,
+                jobs: c.jobs,
+            },
+            Ok(_) => panic!("{args:?} is not a compare command"),
+            Err(e) => panic!("{args:?} does not parse: {e}"),
+        }
+    }
+
+    #[test]
+    fn round_trip() {
+        let pairs: [&[&str]; 3] = [&["flow"], &["flow", "numeric"], &["a", "b", "c"]];
+        let reports: [&[Report]; 4] = [
+            &[Report::Size],
+            &[Report::Cost, Report::Trace],
+            &[Report::Opcodes, Report::Functions, Report::Layout],
+            &Report::ALL,
+        ];
+        let mut n = 0;
+        for p in pairs {
+            for r in reports {
+                for json in [false, true] {
+                    for mode in [Mode::Totals, Mode::Detail, Mode::Dump] {
+                        for jobs in [None, Some(1), Some(8)] {
+                            let s = Selection {
+                                json,
+                                mode,
+                                jobs,
+                                ..sel(p, r)
+                            };
+                            assert_eq!(parsed(&s.args()), s);
+                            n += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(n, 216);
+    }
+
     #[test]
     fn quoting() {
         assert_eq!(quote("flow"), "flow");
