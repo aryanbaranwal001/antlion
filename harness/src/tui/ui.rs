@@ -95,6 +95,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Ask::PresetName => "save the selection as the preset: ",
             Ask::Save => "save to: ",
             Ask::Overwrite => "file is there, y to write over it: ",
+            Ask::Confirm(_) => "y to go on: ",
         };
         f.render_widget(Paragraph::new(format!(" {label}{}", p.text)), command);
         let x = command.x + 1 + (label.chars().count() + p.text.chars().count()) as u16;
@@ -265,8 +266,7 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
         return;
     };
     let r = &t.run;
-    let block =
-        frame(app, Pane::Output).title(format!(" Output: {} ", super::command::line(&r.args)));
+    let block = frame(app, Pane::Output).title(format!(" Output: {} ", t.title()));
     let height = block.inner(area).height as usize;
     let last = r.lines.len().saturating_sub(height);
     let top = t.top.map_or(last, |x| x.min(last));

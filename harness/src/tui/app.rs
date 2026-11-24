@@ -129,8 +129,18 @@ pub struct Tab {
     pub left: usize,
     /// The last search in the output.
     pub search: Option<Search>,
-    /// A `--build` run, whose end changes the build state of the pairs.
-    build: bool,
+    kind: Kind,
+}
+
+/// What a tab runs.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Kind {
+    /// A `--compare` run, which goes into the history.
+    Compare,
+    /// A run that builds pairs, whose end changes the build state of the pairs.
+    Build,
+    /// A `scripts/check.sh` task.
+    Task,
 }
 
 impl Tab {
@@ -140,7 +150,15 @@ impl Tab {
             top: None,
             left: 0,
             search: None,
-            build: false,
+            kind: Kind::Compare,
+        }
+    }
+
+    /// What the tab runs, as a shell line.
+    pub fn title(&self) -> String {
+        match self.kind {
+            Kind::Task => format!("scripts/check.sh {}", self.run.args.join(" ")),
+            Kind::Compare | Kind::Build => command::line(&self.run.args),
         }
     }
 
@@ -175,6 +193,8 @@ pub enum Ask {
     Palette,
     /// The history of runs, in the palette box: the text filters the runs.
     History,
+    /// Whether to do an act that cannot be undone. `y` agrees.
+    Confirm(Act),
     /// The presets, in the palette box: the text filters them.
     Presets,
     /// A name to save the selection as a preset under.
@@ -209,6 +229,10 @@ pub enum Act {
     History,
     /// Check the tools, `out/` and the pairs.
     Doctor,
+    /// Run `scripts/check.sh` with this task.
+    Task(&'static str),
+    /// Run `scripts/check.sh save`, once the user agreed to write over the golden output.
+    SaveGolden,
     /// Ask for a name, and save the selection as a preset.
     SavePreset,
     /// Open the presets.
@@ -348,8 +372,8 @@ impl App {
         for t in &mut self.tabs {
             let was = t.run.running();
             t.run.poll();
-            built |= t.build && was && !t.run.running();
-            if !t.build
+            built |= t.kind == Kind::Build && was && !t.run.running();
+            if t.kind == Kind::Compare
                 && was
                 && let Some((end, time)) = t.run.end
             {
@@ -477,13 +501,39 @@ impl App {
         let mut args = vec!["--build".to_string()];
         args.extend(src.iter().map(|p| format!("contracts/{}", p.name)));
         match Run::start(&self.program, args, &self.root) {
-            Ok(r) => {
-                self.add_tab(r);
-                if let Some(t) = self.tabs.last_mut() {
-                    t.build = true;
-                }
-            }
+            Ok(r) => self.add_kind(r, Kind::Build),
             Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
+        }
+    }
+
+    /// Run `scripts/check.sh task` in a new tab. `build` changes `out/`, so it counts as a
+    /// build.
+    fn task(&mut self, task: &str) {
+        if self.running() {
+            self.status = Some("a run is active: wait for it, or press c".to_string());
+            return;
+        }
+        let script = self.root.join("scripts/check.sh");
+        let kind = if task == "build" {
+            Kind::Build
+        } else {
+            Kind::Task
+        };
+        match Run::start(
+            &script.to_string_lossy(),
+            vec![task.to_string()],
+            &self.root,
+        ) {
+            Ok(r) => self.add_kind(r, kind),
+            Err(e) => self.status = Some(format!("cannot start {}: {e}", script.display())),
+        }
+    }
+
+    /// Show `run` in a new tab of `kind`.
+    fn add_kind(&mut self, run: Run, kind: Kind) {
+        self.add_tab(run);
+        if let Some(t) = self.tabs.last_mut() {
+            t.kind = kind;
         }
     }
 
@@ -492,6 +542,15 @@ impl App {
         let Some(p) = &mut self.prompt else { return };
         if matches!(p.ask, Ask::Palette | Ask::History | Ask::Presets) {
             self.palette_key(k);
+            return;
+        }
+        if let Ask::Confirm(act) = p.ask {
+            self.prompt = None;
+            if k.code == KeyCode::Char('y') {
+                self.act(act);
+            } else {
+                self.status = Some("not done".to_string());
+            }
             return;
         }
         if p.ask == Ask::Overwrite {
@@ -554,7 +613,7 @@ impl App {
                         });
                     }
                     Ask::Save => self.save(&p.text),
-                    Ask::Overwrite => unreachable!("handled above"),
+                    Ask::Overwrite | Ask::Confirm(_) => unreachable!("handled above"),
                 }
             }
             _ => {}
@@ -622,6 +681,27 @@ impl App {
                 "doctor: check the tools, out/ and the builds",
                 "",
                 Act::Doctor,
+            ),
+            e("check.sh build: build every pair", "", Act::Task("build")),
+            e(
+                "check.sh diff: compare the output with the golden output",
+                "",
+                Act::Task("diff"),
+            ),
+            e(
+                "check.sh save: write over the golden output",
+                "",
+                Act::Task("save"),
+            ),
+            e(
+                "check.sh wasm: compare the wasm files with the golden hashes",
+                "",
+                Act::Task("wasm"),
+            ),
+            e(
+                "check.sh time: time a run of every report on every pair",
+                "",
+                Act::Task("time"),
             ),
             e("save the selection as a preset", "", Act::SavePreset),
             e("load a preset", "", Act::Presets),
@@ -763,6 +843,14 @@ impl App {
                     text: String::new(),
                 });
             }
+            Act::Task("save") => {
+                self.prompt = Some(Prompt {
+                    ask: Ask::Confirm(Act::SaveGolden),
+                    text: "check.sh save writes over the golden output".to_string(),
+                })
+            }
+            Act::SaveGolden => self.task("save"),
+            Act::Task(t) => self.task(t),
             Act::Doctor => {
                 // Read the pairs first, so a build made outside the UI is seen.
                 self.reload();
@@ -1374,6 +1462,54 @@ mod tests {
     }
 
     #[test]
+    fn tasks() {
+        let d = super::super::catalog::tests::scratch("tasks");
+        std::fs::create_dir_all(d.join("scripts")).unwrap();
+        let script = d.join("scripts/check.sh");
+        std::fs::write(&script, "#!/bin/sh\necho task $1\n").unwrap();
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(&script)
+            .status()
+            .unwrap();
+        let mut app = App {
+            root: d.clone(),
+            ..App::default()
+        };
+        let finish = |app: &mut App| {
+            let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while app.running() && std::time::Instant::now() < stop {
+                app.tick();
+            }
+            app.tick();
+        };
+
+        keys(&mut app, ":check.sh diff");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        finish(&mut app);
+        assert_eq!(app.tabs[0].run.lines[0].text, "task diff");
+        assert_eq!(app.tabs[0].title(), "scripts/check.sh diff");
+        assert_eq!(app.tabs[0].kind, Kind::Task);
+        // A task does not go into the history.
+        assert!(app.history.is_empty());
+
+        // `save` asks first; any key but `y` does nothing.
+        keys(&mut app, ":check.sh save");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, "n");
+        assert_eq!(app.tabs.len(), 1);
+        keys(&mut app, ":check.sh save");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, "y");
+        finish(&mut app);
+        assert_eq!(app.tabs[1].run.lines[0].text, "task save");
+
+        keys(&mut app, ":check.sh build");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.tabs[2].kind, Kind::Build);
+    }
+
+    #[test]
     fn reports_list() {
         let mut app = App::default();
         keys(&mut app, "2");
@@ -1579,7 +1715,7 @@ mod tests {
 
         keys(&mut app, " jb");
         assert_eq!(app.tabs[0].run.args, ["--build", "contracts/a"]);
-        assert!(app.tabs[0].build);
+        assert_eq!(app.tabs[0].kind, Kind::Build);
         let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
         while app.running() && std::time::Instant::now() < stop {
             app.tick();
