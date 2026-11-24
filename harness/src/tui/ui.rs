@@ -53,9 +53,18 @@ pub fn draw(f: &mut Frame, app: &App) {
         );
     }
     f.render_widget(
-        Paragraph::new(Line::from(" q quit")).style(Style::new().add_modifier(Modifier::DIM)),
+        Paragraph::new(Line::from(hints(app.focus)))
+            .style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
+}
+
+/// The keys of the pane that has the focus, then the keys that work everywhere.
+fn hints(p: Pane) -> String {
+    let own = match p {
+        Pane::Pairs | Pane::Reports | Pane::Options | Pane::Output => "",
+    };
+    format!(" {own}Tab pane  1-4 jump  q quit")
 }
 
 /// One pane's frame and title. The pane that has the focus has a bright border.
@@ -100,6 +109,7 @@ pub(super) mod tests {
             );
         }
         assert!(s[21].starts_with(" $ antlion"));
+        assert!(s[23].contains("Tab pane"));
         assert!(s[23].contains("q quit"));
     }
 
