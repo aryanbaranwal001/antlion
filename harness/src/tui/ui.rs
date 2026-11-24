@@ -88,7 +88,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .highlight_style(cursor);
     let mut state = ListState::default().with_selected(Some(app.option));
     f.render_stateful_widget(widget, options, &mut state);
-    pane(f, app, Pane::Output, output);
+    output_pane(f, app, output);
 
     let args = app.selection().args();
     let mut spans = vec![Span::raw(format!(" $ {}", super::command::line(&args)))];
@@ -109,6 +109,30 @@ pub fn draw(f: &mut Frame, app: &App) {
             .style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
+}
+
+/// The lines of the run that fit, from the end: the pane follows the output as it comes.
+fn output_pane(f: &mut Frame, app: &App, area: Rect) {
+    let Some(r) = &app.run else {
+        pane(f, app, Pane::Output, area);
+        return;
+    };
+    let block =
+        frame(app, Pane::Output).title(format!(" Output: {} ", super::command::line(&r.args)));
+    let height = block.inner(area).height as usize;
+    let top = r.lines.len().saturating_sub(height);
+    let lines: Vec<Line> = r.lines[top..]
+        .iter()
+        .map(|l| {
+            let style = if l.err {
+                Style::new().fg(Color::Red)
+            } else {
+                Style::new()
+            };
+            Line::styled(l.text.as_str(), style)
+        })
+        .collect();
+    f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 /// The state of a run on one line: running or how it ended, its time and its lines.
@@ -277,6 +301,23 @@ pub(super) mod tests {
             s.iter()
                 .any(|r| r.starts_with(" $ antlion --compare flow ttl --report cost --json "))
         );
+    }
+
+    #[test]
+    fn output_follows_the_end() {
+        let mut app = App::default();
+        let script = "for i in $(seq 1 100); do echo line$i; done; echo oops >&2";
+        let mut r =
+            super::super::runner::Run::start("sh", vec!["-c".into(), script.into()]).unwrap();
+        super::super::runner::tests::finish(&mut r);
+        app.run = Some(r);
+        let s = screen(&app, 80, 24);
+        assert!(s[10].contains(" Output: antlion -c "));
+        // The end is on screen, the start is not.
+        assert!(s.iter().any(|r| r.contains("line100")));
+        assert!(s.iter().any(|r| r.contains("oops")));
+        assert!(s.iter().all(|r| !r.contains("line1 ")));
+        assert!(s[22].contains("done") && s[22].contains("101 lines"));
     }
 
     #[test]

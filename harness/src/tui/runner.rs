@@ -99,11 +99,11 @@ fn read_lines(pipe: impl Read + Send + 'static, err: bool, tx: mpsc::Sender<Line
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
     /// Poll `run` until it ends, for at most 5 seconds.
-    fn finish(run: &mut Run) {
+    pub fn finish(run: &mut Run) {
         let stop = Instant::now() + Duration::from_secs(5);
         while run.running() && Instant::now() < stop {
             run.poll();
