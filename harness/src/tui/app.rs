@@ -347,15 +347,16 @@ impl App {
             let was = t.run.running();
             t.run.poll();
             built |= t.build && was && !t.run.running();
-            if !t.build && was {
-                if let Some((end, time)) = t.run.end {
-                    let exit = match end {
-                        super::runner::End::Exited(c) => c,
-                        super::runner::End::Cancelled => None,
-                    };
-                    let r = super::store::Record::new(t.run.args.clone(), exit, time.as_secs_f64());
-                    ended.push(r);
-                }
+            if !t.build
+                && was
+                && let Some((end, time)) = t.run.end
+            {
+                let exit = match end {
+                    super::runner::End::Exited(c) => c,
+                    super::runner::End::Cancelled => None,
+                };
+                let r = super::store::Record::new(t.run.args.clone(), exit, time.as_secs_f64());
+                ended.push(r);
             }
             if let Some(s) = &mut t.search {
                 s.update(&t.run.lines);
