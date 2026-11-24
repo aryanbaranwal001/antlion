@@ -6,6 +6,7 @@ a contract pair, see the [README](README.md).
 1. [Commands](#commands)
    - [Build](#build)
    - [Compare](#compare)
+   - [Interactive](#interactive)
    - [Help and version](#help-and-version)
 2. [Reading the output](#reading-the-output)
    - [JSON output](#json-output)
@@ -86,6 +87,104 @@ affects the `opcodes` and `cost` reports, and `--dump` only `opcodes`; see
 cores. More threads are faster and use more memory, and `--jobs 1` uses the least memory.
 The results are the same for every value. If the system cannot start the threads, antlion
 prints a warning and runs every call on one thread.
+
+### Interactive
+
+```
+antlion --interactive
+```
+
+Opens a terminal UI where you pick pairs, reports and options from lists, see the command
+they make, run it, and read and search its output. Start it from the project root, where
+`out/` and `contracts/` are. It needs a terminal: in a pipe or a script it exits with 2, so
+use `--build` and `--compare` there.
+
+The UI runs antlion itself for each command, with the arguments you picked. The command
+line at the bottom always shows that exact command, and `y` copies it, so anything you do in
+the UI you can also do in a shell or a script.
+
+```
+┌ Pairs (2/22) ────────┐┌ Reports (1/17) ──────┐┌ Options ─────────┐
+│[x] flow     built    ││[ ] returns           ││ output   text    │
+│[x] numeric  built    ││[x] cost              ││ mode     totals  │
+│[ ] ttl      stale    ││[ ] scaling           ││ jobs     auto    │
+└──────────────────────┘└ metered cost of ... ─┘└──────────────────┘
+┌ Output: antlion --compare flow numeric --report cost ── lines 1-12 of 150 ┐
+│ ...                                                                      │
+└──────────────────────────────────────────────────────────────────────────┘
+ $ antlion --compare flow numeric --report cost
+ done  0.9 s  150 lines  tab 1 of 1
+ j/k  Space select  a/A all/none  / filter  K info  Tab  r run  ? help  q quit
+```
+
+**The panes.** Pairs lists every folder in `contracts/` and every build in `out/`, with its
+state: `built` (both wasm files are there), `stale` (a source file is newer than a build)
+or `none`. Reports lists the 17 reports; the lower border shows what the one under the
+cursor does. Options sets the output (`text` or `json`), the mode (`totals`, `detail` or
+`dump`, so `--detail` and `--dump` never go together) and the jobs (`auto` leaves the
+number to antlion). Output shows the run, and each run has its own tab.
+
+**The command line.** It shows the command your picks make. When the CLI would refuse it,
+for example with no pair or no report, it shows the reason in red, and `r` does nothing.
+
+**The keys.** Press `?` for every key. The most used:
+
+| Key | Action |
+|---|---|
+| `Tab`, `Shift+Tab`, `1` to `4` | Move between the panes |
+| `j` `k`, `gg` `G` | Move in a list, or scroll the output |
+| `Space` | Select or clear the item under the cursor |
+| `a`, `A` | Select all, clear all, of the items shown |
+| `/` | Filter a list, or search the output |
+| `n`, `N` | Next match, match before |
+| `K` | Help for the pair, report or option under the cursor |
+| `r` | Run the command |
+| `b` | Build the selected pairs |
+| `c` | Cancel the run |
+| `y` | Copy the command |
+| `s` | Save the output of the tab to a file |
+| `[`, `]` | Tab before, next tab |
+| `H` | History of runs |
+| `:` | Command palette |
+| `q` | Quit; during a run, press it twice |
+
+A list filter and the palette use fuzzy search: the letters you type must come in order,
+with gaps allowed, so `stc` finds `struct_class`. The output search ignores case unless you
+type a capital letter.
+
+**The palette.** `:` opens a box with every action, pair and report. Type part of a name and
+press `Enter`. Some actions are only in the palette:
+
+- save the selection as a preset, and load a preset;
+- the doctor, which checks that `solang` and `stellar` are on `PATH`, that `out/` is there,
+  and which pairs are stale or not built, with a fix for each problem;
+- the `scripts/check.sh` tasks: `build`, `diff`, `save`, `wasm` and `time`. `save` asks
+  first, because it writes over the golden output.
+
+**Files.** The UI keeps two files:
+
+| File | What it holds |
+|---|---|
+| `~/.local/state/antlion/history.jsonl` | The last 200 `--compare` runs: time, arguments, exit code and duration |
+| `~/.config/antlion/config.toml` | Your defaults and your presets |
+
+`$XDG_STATE_HOME` and `$XDG_CONFIG_HOME` move them, and `ANTLION_CONFIG_DIR` puts both in
+one folder. The config file looks like this:
+
+```toml
+output = "text"     # or "json"
+mode = "detail"     # "totals", "detail" or "dump"
+jobs = 2            # 1 or more
+
+[presets."cost of numeric pairs"]
+args = ["--compare", "numeric", "--report", "cost"]
+```
+
+When the UI saves a preset, it keeps the rest of the file, comments too. A bad value shows
+in the status bar, and the UI starts with the built in defaults.
+
+The UI is a cargo feature, `interactive`, on by default. `cargo build --no-default-features`
+leaves it out, and then `--interactive` exits with 1.
 
 ### Help and version
 
