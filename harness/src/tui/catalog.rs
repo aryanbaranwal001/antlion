@@ -180,6 +180,71 @@ pub fn signatures(root: &Path, name: &str) -> Vec<String> {
     out
 }
 
+/// The first line `program --version` prints, or `None` when it cannot be run.
+fn version(program: &str) -> Option<String> {
+    let out = std::process::Command::new(program)
+        .arg("--version")
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    Some(text.lines().next().unwrap_or("").trim().to_string())
+}
+
+/// What antlion needs under `root`, checked: the two compilers, `out/`, and the state of
+/// each pair. Each problem says how to fix it.
+pub fn doctor(root: &Path, pairs: &[Pair]) -> Vec<String> {
+    let mut out = Vec::new();
+    let tools = [
+        (
+            "solang",
+            "install Solang from https://github.com/hyperledger-solang/solang; a release \
+             binary is named like solang-linux-x86-64, so rename it or link it as solang on PATH",
+        ),
+        (
+            "stellar",
+            "install stellar-cli from https://github.com/stellar/stellar-cli, for example \
+             with cargo install --locked stellar-cli",
+        ),
+    ];
+    for (tool, fix) in tools {
+        match version(tool) {
+            Some(v) => out.push(format!("ok      {tool}: {v}")),
+            None => {
+                out.push(format!("problem {tool} is not on PATH"));
+                out.push(format!("        fix: {fix}"));
+            }
+        }
+    }
+
+    if root.join("out").is_dir() {
+        out.push("ok      out/ is there".to_string());
+    } else {
+        out.push("problem out/ is not there, so no pair can be compared".to_string());
+        out.push(
+            "        fix: select the pairs and press b, or run scripts/check.sh build".to_string(),
+        );
+    }
+
+    for (state, what) in [(State::Stale, "stale"), (State::None, "not built")] {
+        let names: Vec<&str> = pairs
+            .iter()
+            .filter(|p| p.state == state)
+            .map(|p| p.name.as_str())
+            .collect();
+        if names.is_empty() {
+            continue;
+        }
+        out.push(format!("problem {what}: {}", names.join(", ")));
+        out.push("        fix: select them and press b".to_string());
+    }
+    let built = pairs.iter().filter(|p| p.state == State::Built).count();
+    out.push(format!(
+        "ok      {built} of {} pairs built and up to date",
+        pairs.len()
+    ));
+    out
+}
+
 /// A warning when `dir` is not the project root. antlion reads `out/` and `contracts/` from
 /// the working directory, so outside the root no pair can be found.
 pub fn root_warning(dir: &Path) -> Option<String> {
@@ -230,6 +295,39 @@ pub(super) mod tests {
         );
         assert!(option_help("--detail").ends_with("cost: add what each cost type charged"));
         assert_eq!(option_help("--nope"), "");
+    }
+
+    #[test]
+    fn doctor_lists_problems_and_fixes() {
+        let d = scratch("doctor");
+        let p = |name: &str, state| Pair {
+            name: name.to_string(),
+            state,
+            source: true,
+        };
+        let pairs = [
+            p("a", State::Built),
+            p("b", State::Stale),
+            p("c", State::None),
+        ];
+        let lines = doctor(&d, &pairs);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l == "problem out/ is not there, so no pair can be compared")
+        );
+        assert!(lines.iter().any(|l| l == "problem stale: b"));
+        assert!(lines.iter().any(|l| l == "problem not built: c"));
+        assert_eq!(
+            lines.last().unwrap(),
+            "ok      1 of 3 pairs built and up to date"
+        );
+        // Each problem has its fix on the next line.
+        for (i, l) in lines.iter().enumerate() {
+            if l.starts_with("problem") {
+                assert!(lines[i + 1].starts_with("        fix: "), "{l}");
+            }
+        }
     }
 
     #[test]

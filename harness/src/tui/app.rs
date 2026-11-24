@@ -207,6 +207,8 @@ pub enum Act {
     Report(usize),
     /// Open the history of runs.
     History,
+    /// Check the tools, `out/` and the pairs.
+    Doctor,
     /// Ask for a name, and save the selection as a preset.
     SavePreset,
     /// Open the presets.
@@ -616,6 +618,11 @@ impl App {
             e("output: text or json", "", Act::Output),
             e("mode: totals, detail or dump", "", Act::Mode),
             e("history of runs", "H", Act::History),
+            e(
+                "doctor: check the tools, out/ and the builds",
+                "",
+                Act::Doctor,
+            ),
             e("save the selection as a preset", "", Act::SavePreset),
             e("load a preset", "", Act::Presets),
             e("quit", "q", Act::Quit),
@@ -755,6 +762,12 @@ impl App {
                     ask: Ask::History,
                     text: String::new(),
                 });
+            }
+            Act::Doctor => {
+                // Read the pairs first, so a build made outside the UI is seen.
+                self.reload();
+                let lines = super::catalog::doctor(&self.root, &self.pairs);
+                self.info = Some(("doctor".to_string(), lines, 0));
             }
             Act::SavePreset => {
                 self.prompt = Some(Prompt {
