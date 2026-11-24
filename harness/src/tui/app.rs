@@ -93,6 +93,50 @@ impl Pick {
     }
 }
 
+/// The most run tabs kept. A new run past this drops the oldest.
+pub const MAX_TABS: usize = 10;
+
+/// One run and how the user looks at it: where the output pane is, and the search in it.
+pub struct Tab {
+    pub run: Run,
+    /// The top line of the output pane; `None` follows the end of the output.
+    pub top: Option<usize>,
+    /// How many columns the output is moved to the left.
+    pub left: usize,
+    /// The last search in the output.
+    pub search: Option<Search>,
+}
+
+impl Tab {
+    pub fn new(run: Run) -> Self {
+        Tab {
+            run,
+            top: None,
+            left: 0,
+            search: None,
+        }
+    }
+
+    /// The first line the output pane shows, when it is `height` rows high.
+    pub fn top_line(&self, height: usize) -> usize {
+        let last = self.run.lines.len().saturating_sub(height);
+        self.top.map_or(last, |t| t.min(last))
+    }
+
+    /// Move the output by `step` lines. Reaching the end follows the output again.
+    fn scroll(&mut self, step: isize, height: usize) {
+        let last = self.run.lines.len().saturating_sub(height);
+        let to = (self.top_line(height) as isize + step).clamp(0, last as isize) as usize;
+        self.top = (to < last).then_some(to);
+    }
+
+    /// Scroll so that line `l` is in the middle of the output pane.
+    fn show_line(&mut self, l: usize, height: usize) {
+        self.top = Some(l.saturating_sub(height / 2));
+        self.scroll(0, height);
+    }
+}
+
 /// What a line of typed text is for.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Ask {
@@ -126,18 +170,14 @@ pub struct App {
     pub jobs: Option<usize>,
     /// The program a run starts: the antlion binary itself.
     pub program: String,
-    /// The last run, while it runs and after it ends.
-    pub run: Option<Run>,
-    /// The top line of the output pane; `None` follows the end of the output.
-    pub top: Option<usize>,
-    /// How many columns the output is moved to the left.
-    pub left: usize,
+    /// One tab for each run, the oldest first.
+    pub tabs: Vec<Tab>,
+    /// The tab the output pane shows.
+    pub tab: usize,
     /// The rows inside the output pane, as the last frame drew it.
     pub view_height: usize,
     /// The line the user types into, while it is open.
     pub prompt: Option<Prompt>,
-    /// The last search in the output.
-    pub search: Option<Search>,
     /// `q` was pressed while a run was active, and needs a second `q`.
     quit_asked: bool,
     /// The first `g` of `gg` was pressed.
@@ -158,12 +198,10 @@ impl Default for App {
             mode: Mode::Totals,
             jobs: None,
             program: "antlion".to_string(),
-            run: None,
-            top: None,
-            left: 0,
+            tabs: Vec::new(),
+            tab: 0,
             view_height: 0,
             prompt: None,
-            search: None,
             quit_asked: false,
             g: false,
         }
@@ -180,15 +218,24 @@ impl App {
     }
 
     pub fn running(&self) -> bool {
-        self.run.as_ref().is_some_and(Run::running)
+        self.tabs.iter().any(|t| t.run.running())
     }
 
-    /// Take the new output of the run, and search it.
+    /// The tab the output pane shows.
+    pub fn current(&self) -> Option<&Tab> {
+        self.tabs.get(self.tab)
+    }
+
+    fn current_mut(&mut self) -> Option<&mut Tab> {
+        self.tabs.get_mut(self.tab)
+    }
+
+    /// Take the new output of each run, and search it.
     pub fn tick(&mut self) {
-        if let Some(r) = &mut self.run {
-            r.poll();
-            if let Some(s) = &mut self.search {
-                s.update(&r.lines);
+        for t in &mut self.tabs {
+            t.run.poll();
+            if let Some(s) = &mut t.search {
+                s.update(&t.run.lines);
             }
         }
     }
@@ -205,19 +252,22 @@ impl App {
             KeyCode::Enter => {
                 let p = self.prompt.take().expect("the prompt is open");
                 match p.ask {
-                    Ask::Search if p.text.is_empty() => self.search = None,
                     Ask::Search => {
-                        let mut s = Search::new(p.text);
-                        if let Some(r) = &self.run {
-                            s.update(&r.lines);
+                        let h = self.view_height;
+                        let Some(t) = self.current_mut() else { return };
+                        if p.text.is_empty() {
+                            t.search = None;
+                            return;
                         }
+                        let mut s = Search::new(p.text);
+                        s.update(&t.run.lines);
                         // Start at the first match at or after the top line.
-                        let top = self.output_top();
-                        s.at = s.hits.iter().position(|&h| h >= top).unwrap_or(0);
+                        let top = t.top_line(h);
+                        s.at = s.hits.iter().position(|&x| x >= top).unwrap_or(0);
                         let line = s.hits.get(s.at).copied();
-                        self.search = Some(s);
+                        t.search = Some(s);
                         if let Some(l) = line {
-                            self.show_line(l);
+                            t.show_line(l, h);
                         }
                     }
                 }
@@ -226,17 +276,12 @@ impl App {
         }
     }
 
-    /// Scroll so that line `l` is in the middle of the output pane.
-    fn show_line(&mut self, l: usize) {
-        let to = l.saturating_sub(self.view_height / 2);
-        self.top = Some(to);
-        self.scroll(0);
-    }
-
     /// Move to the next match of the search, or the one before.
     fn next_match(&mut self, step: isize) {
-        if let Some(l) = self.search.as_mut().and_then(|s| s.step(step)) {
-            self.show_line(l);
+        let h = self.view_height;
+        let Some(t) = self.current_mut() else { return };
+        if let Some(l) = t.search.as_mut().and_then(|s| s.step(step)) {
+            t.show_line(l, h);
         }
     }
 
@@ -247,46 +292,53 @@ impl App {
             return;
         }
         match Run::start(&self.program, args) {
-            Ok(r) => {
-                self.run = Some(r);
-                self.top = None;
-                self.left = 0;
-            }
+            Ok(r) => self.add_tab(r),
             Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
         }
     }
 
-    /// The first line the output pane shows.
-    pub fn output_top(&self) -> usize {
-        let len = self.run.as_ref().map_or(0, |r| r.lines.len());
-        let last = len.saturating_sub(self.view_height);
-        self.top.map_or(last, |t| t.min(last))
+    /// Show `run` in a new tab. Past `MAX_TABS` the oldest tab is dropped.
+    fn add_tab(&mut self, run: Run) {
+        self.tabs.push(Tab::new(run));
+        if self.tabs.len() > MAX_TABS {
+            self.tabs.remove(0);
+        }
+        self.tab = self.tabs.len() - 1;
     }
 
-    /// Move the output by `step` lines. Reaching the end follows the output again.
-    fn scroll(&mut self, step: isize) {
-        let len = self.run.as_ref().map_or(0, |r| r.lines.len());
-        let last = len.saturating_sub(self.view_height);
-        let to = (self.output_top() as isize + step).clamp(0, last as isize) as usize;
-        self.top = (to < last).then_some(to);
+    /// The first line the output pane shows; 0 with no run.
+    #[cfg(test)]
+    fn output_top(&self) -> usize {
+        self.current().map_or(0, |t| t.top_line(self.view_height))
     }
 
     /// The keys of the output pane. True when the key was one of them.
     fn output_key(&mut self, k: KeyEvent, g: bool) -> bool {
-        let half = (self.view_height / 2).max(1) as isize;
+        let h = self.view_height;
+        let half = (h / 2).max(1) as isize;
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        let n = self.tabs.len();
         match k.code {
-            KeyCode::Char('j') | KeyCode::Down => self.scroll(1),
-            KeyCode::Char('k') | KeyCode::Up => self.scroll(-1),
-            KeyCode::Char('d') if ctrl => self.scroll(half),
-            KeyCode::Char('u') if ctrl => self.scroll(-half),
-            KeyCode::PageDown => self.scroll(half * 2),
-            KeyCode::PageUp => self.scroll(-half * 2),
-            KeyCode::Char('g') if g => self.scroll(isize::MIN / 2),
-            KeyCode::Char('G') => self.top = None,
-            KeyCode::Char('l') | KeyCode::Right => self.left += 8,
-            KeyCode::Char('h') | KeyCode::Left => self.left = self.left.saturating_sub(8),
-            KeyCode::Char('0') => self.left = 0,
+            KeyCode::Char('[') => self.tab = self.tab.saturating_sub(1),
+            KeyCode::Char(']') => self.tab = (self.tab + 1).min(n.saturating_sub(1)),
+            _ => {}
+        }
+        let Some(t) = self.tabs.get_mut(self.tab) else {
+            return matches!(k.code, KeyCode::Char('[' | ']'));
+        };
+        match k.code {
+            KeyCode::Char('[' | ']') => {}
+            KeyCode::Char('j') | KeyCode::Down => t.scroll(1, h),
+            KeyCode::Char('k') | KeyCode::Up => t.scroll(-1, h),
+            KeyCode::Char('d') if ctrl => t.scroll(half, h),
+            KeyCode::Char('u') if ctrl => t.scroll(-half, h),
+            KeyCode::PageDown => t.scroll(half * 2, h),
+            KeyCode::PageUp => t.scroll(-half * 2, h),
+            KeyCode::Char('g') if g => t.scroll(isize::MIN / 2, h),
+            KeyCode::Char('G') => t.top = None,
+            KeyCode::Char('l') | KeyCode::Right => t.left += 8,
+            KeyCode::Char('h') | KeyCode::Left => t.left = t.left.saturating_sub(8),
+            KeyCode::Char('0') => t.left = 0,
             KeyCode::Char('/') => {
                 self.prompt = Some(Prompt {
                     ask: Ask::Search,
@@ -414,8 +466,8 @@ impl App {
                     Some("a run is active: press q again to stop it and quit".to_string());
             }
             KeyCode::Char('c') if k.modifiers.is_empty() => {
-                if let Some(r) = &mut self.run {
-                    r.cancel();
+                for t in &mut self.tabs {
+                    t.run.cancel();
                 }
             }
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
@@ -524,7 +576,8 @@ mod tests {
     #[test]
     fn quit_during_a_run() {
         let mut app = App::default();
-        app.run = Some(Run::start("sleep", vec!["30".into()]).unwrap());
+        app.tabs
+            .push(Tab::new(Run::start("sleep", vec!["30".into()]).unwrap()));
         keys(&mut app, "q");
         assert!(!app.quit);
         assert!(
@@ -537,7 +590,8 @@ mod tests {
 
         // Any other key in between asks again.
         let mut app = App::default();
-        app.run = Some(Run::start("sleep", vec!["30".into()]).unwrap());
+        app.tabs
+            .push(Tab::new(Run::start("sleep", vec!["30".into()]).unwrap()));
         keys(&mut app, "qjq");
         assert!(!app.quit);
 
@@ -554,7 +608,7 @@ mod tests {
         let mut r = Run::start("sh", vec!["-c".into(), script]).unwrap();
         super::super::runner::tests::finish(&mut r);
         App {
-            run: Some(r),
+            tabs: vec![Tab::new(r)],
             view_height: h,
             focus: Pane::Output,
             ..App::default()
@@ -566,7 +620,7 @@ mod tests {
         let mut app = with_output(100, 10);
         assert_eq!(app.output_top(), 90);
         keys(&mut app, "k");
-        assert_eq!((app.output_top(), app.top), (89, Some(89)));
+        assert_eq!((app.output_top(), app.tabs[0].top), (89, Some(89)));
         keys(&mut app, "gg");
         assert_eq!(app.output_top(), 0);
         keys(&mut app, "k");
@@ -576,14 +630,14 @@ mod tests {
         press(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL);
         assert_eq!(app.output_top(), 0);
         keys(&mut app, "G");
-        assert_eq!(app.top, None);
+        assert_eq!(app.tabs[0].top, None);
         // Down at the end stays at the end, and follows.
         keys(&mut app, "j");
-        assert_eq!((app.output_top(), app.top), (90, None));
+        assert_eq!((app.output_top(), app.tabs[0].top), (90, None));
         keys(&mut app, "lll h");
-        assert_eq!(app.left, 16);
+        assert_eq!(app.tabs[0].left, 16);
         keys(&mut app, "0");
-        assert_eq!(app.left, 0);
+        assert_eq!(app.tabs[0].left, 0);
 
         // Output shorter than the pane never scrolls.
         let mut app = with_output(3, 10);
@@ -602,24 +656,60 @@ mod tests {
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         assert!(!app.quit);
         press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
-        let s = app.search.as_ref().unwrap();
+        let s = app.tabs[0].search.as_ref().unwrap();
         // 5, 15, 25, ... 95, and 50 to 59: 19 lines.
         assert_eq!(s.hits.len(), 19);
         // The search starts at the first match at or after the top line, 90: the line
         // "95", which is the last match. So `n` goes round to the first.
         assert_eq!((s.at, s.hits[s.at]), (18, 94));
         keys(&mut app, "n");
-        assert_eq!(app.search.as_ref().unwrap().at, 0);
+        assert_eq!(app.tabs[0].search.as_ref().unwrap().at, 0);
         assert_eq!(app.output_top(), 0);
         keys(&mut app, "N");
-        assert_eq!(app.search.as_ref().unwrap().at, 18);
+        assert_eq!(app.tabs[0].search.as_ref().unwrap().at, 18);
         assert_eq!(app.output_top(), 89);
 
         // `Esc` closes the prompt and keeps the old search.
         keys(&mut app, "/x");
         press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert!(app.prompt.is_none());
-        assert_eq!(app.search.as_ref().unwrap().query, "5");
+        assert_eq!(app.tabs[0].search.as_ref().unwrap().query, "5");
+    }
+
+    #[test]
+    fn tabs() {
+        let mut app = App {
+            focus: Pane::Output,
+            view_height: 10,
+            ..App::default()
+        };
+        // `[` and `]` with no tab do nothing.
+        keys(&mut app, "[]");
+        assert_eq!(app.tab, 0);
+
+        for i in 0..12 {
+            let mut r = Run::start("sh", vec!["-c".into(), format!("seq 1 {}", 20 + i)]).unwrap();
+            super::super::runner::tests::finish(&mut r);
+            app.add_tab(r);
+        }
+        assert_eq!(app.tabs.len(), MAX_TABS);
+        assert_eq!(app.tab, 9);
+        // The oldest tab now is the third run, with 22 lines.
+        keys(&mut app, "[[[[[[[[[[[[");
+        assert_eq!(app.tab, 0);
+        assert_eq!(app.tabs[0].run.lines.len(), 22);
+
+        // Each tab keeps its own scroll and search.
+        keys(&mut app, "gg/7");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, "]");
+        assert_eq!(app.tab, 1);
+        assert!(app.tabs[1].search.is_none());
+        assert_eq!(app.output_top(), 13);
+        keys(&mut app, "[");
+        assert_eq!(app.tabs[0].search.as_ref().unwrap().query, "7");
+        keys(&mut app, "]]]]]]]]]]]]");
+        assert_eq!(app.tab, 9);
     }
 
     #[test]

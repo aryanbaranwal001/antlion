@@ -104,8 +104,9 @@ pub fn draw(f: &mut Frame, app: &App) {
             Paragraph::new(format!(" {s}")).style(Style::new().fg(Color::Yellow)),
             status,
         );
-    } else if let Some(r) = &app.run {
-        f.render_widget(Paragraph::new(run_state(r)), status);
+    } else if let Some(t) = app.current() {
+        let tabs = format!("  tab {} of {}", app.tab + 1, app.tabs.len());
+        f.render_widget(Paragraph::new(run_state(&t.run) + &tabs), status);
     }
     f.render_widget(
         Paragraph::new(Line::from(hints(app.focus)))
@@ -116,22 +117,23 @@ pub fn draw(f: &mut Frame, app: &App) {
 
 /// The lines of the run that fit, from the end: the pane follows the output as it comes.
 fn output_pane(f: &mut Frame, app: &App, area: Rect) {
-    let Some(r) = &app.run else {
+    let Some(t) = app.current() else {
         pane(f, app, Pane::Output, area);
         return;
     };
+    let r = &t.run;
     let block =
         frame(app, Pane::Output).title(format!(" Output: {} ", super::command::line(&r.args)));
     let height = block.inner(area).height as usize;
     let last = r.lines.len().saturating_sub(height);
-    let top = app.top.map_or(last, |t| t.min(last));
+    let top = t.top.map_or(last, |x| x.min(last));
     let end = (top + height).min(r.lines.len());
     let mut shown = if end > top {
         format!(" lines {}-{} of {} ", top + 1, end, r.lines.len())
     } else {
         " no output ".to_string()
     };
-    if let Some(s) = &app.search {
+    if let Some(s) = &t.search {
         let at = if s.hits.is_empty() { 0 } else { s.at + 1 };
         shown = format!(" /{}  {at}/{} {shown}", s.query, s.hits.len());
     }
@@ -144,8 +146,7 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::new()
             };
-            if app
-                .search
+            if t.search
                 .as_ref()
                 .is_some_and(|s| search::holds(&l.text, &s.query))
             {
@@ -154,7 +155,7 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
             Line::styled(l.text.as_str(), style)
         })
         .collect();
-    let left = u16::try_from(app.left).unwrap_or(u16::MAX);
+    let left = u16::try_from(t.left).unwrap_or(u16::MAX);
     f.render_widget(Paragraph::new(lines).block(block).scroll((0, left)), area);
 }
 
@@ -200,7 +201,7 @@ fn hints(p: Pane) -> String {
     let own = match p {
         Pane::Pairs | Pane::Reports => "j/k move  Space select  a all  A none  ",
         Pane::Options => "j/k move  Space change  +/- jobs  ",
-        Pane::Output => "j/k scroll  ^D/^U page  gg/G ends  h/l side  / search  n/N  ",
+        Pane::Output => "j/k scroll  ^D/^U page  gg/G ends  h/l side  / search  n/N  [/] tab  ",
     };
     format!(" {own}Tab pane  r run  c cancel  q quit")
 }
@@ -353,14 +354,14 @@ pub(super) mod tests {
         let mut r =
             super::super::runner::Run::start("sh", vec!["-c".into(), script.into()]).unwrap();
         super::super::runner::tests::finish(&mut r);
-        app.run = Some(r);
+        app.tabs.push(super::super::app::Tab::new(r));
         let s = screen(&app, 80, 24);
         assert!(s[10].contains(" Output: antlion -c "));
         // The end is on screen, the start is not.
         assert!(s.iter().any(|r| r.contains("line100")));
         assert!(s.iter().any(|r| r.contains("oops")));
         assert!(s.iter().all(|r| !r.contains("line1 ")));
-        assert!(s[22].contains("done") && s[22].contains("101 lines"));
+        assert!(s[22].contains("done") && s[22].contains("101 lines  tab 1 of 1"));
     }
 
     #[test]
