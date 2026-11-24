@@ -113,6 +113,8 @@ pub struct App {
     pub program: String,
     /// The last run, while it runs and after it ends.
     pub run: Option<Run>,
+    /// `q` was pressed while a run was active, and needs a second `q`.
+    quit_asked: bool,
     /// The first `g` of `gg` was pressed.
     g: bool,
 }
@@ -132,6 +134,7 @@ impl Default for App {
             jobs: None,
             program: "antlion".to_string(),
             run: None,
+            quit_asked: false,
             g: false,
         }
     }
@@ -146,6 +149,10 @@ impl App {
         }
     }
 
+    pub fn running(&self) -> bool {
+        self.run.as_ref().is_some_and(Run::running)
+    }
+
     /// Take the new output of the run.
     pub fn tick(&mut self) {
         if let Some(r) = &mut self.run {
@@ -156,7 +163,7 @@ impl App {
     /// Start the command of the selection, unless the CLI refuses it or a run is active.
     fn start(&mut self) {
         let args = self.selection().args();
-        if command::refusal(&args).is_some() || self.run.as_ref().is_some_and(Run::running) {
+        if command::refusal(&args).is_some() || self.running() {
             return;
         }
         match Run::start(&self.program, args) {
@@ -238,6 +245,7 @@ impl App {
 
     pub fn key(&mut self, k: KeyEvent) {
         let g = std::mem::take(&mut self.g);
+        let quit_asked = std::mem::take(&mut self.quit_asked);
         let list = match self.focus {
             Pane::Pairs => Some(&mut self.pair_pick),
             Pane::Reports => Some(&mut self.report_pick),
@@ -258,7 +266,17 @@ impl App {
         }
 
         match k.code {
-            KeyCode::Char('q') => self.quit = true,
+            KeyCode::Char('q') if quit_asked || !self.running() => self.quit = true,
+            KeyCode::Char('q') => {
+                self.quit_asked = true;
+                self.status =
+                    Some("a run is active: press q again to stop it and quit".to_string());
+            }
+            KeyCode::Char('c') if k.modifiers.is_empty() => {
+                if let Some(r) = &mut self.run {
+                    r.cancel();
+                }
+            }
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
             KeyCode::Char('r') => self.start(),
             KeyCode::Tab => self.focus = self.focus.next(1),
@@ -360,6 +378,33 @@ mod tests {
             keys(&mut app, "+");
         }
         assert_eq!(app.jobs, Some(MAX_JOBS));
+    }
+
+    #[test]
+    fn quit_during_a_run() {
+        let mut app = App::default();
+        app.run = Some(Run::start("sleep", vec!["30".into()]).unwrap());
+        keys(&mut app, "q");
+        assert!(!app.quit);
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.contains("press q again"))
+        );
+        keys(&mut app, "q");
+        assert!(app.quit);
+
+        // Any other key in between asks again.
+        let mut app = App::default();
+        app.run = Some(Run::start("sleep", vec!["30".into()]).unwrap());
+        keys(&mut app, "qjq");
+        assert!(!app.quit);
+
+        // `c` cancels, and then one `q` quits.
+        keys(&mut app, "c");
+        assert!(!app.running());
+        keys(&mut app, "q");
+        assert!(app.quit);
     }
 
     #[test]

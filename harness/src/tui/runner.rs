@@ -77,6 +77,27 @@ impl Run {
     pub fn running(&self) -> bool {
         self.end.is_none()
     }
+
+    /// Stop the child, and wait for it so that no zombie process stays.
+    pub fn cancel(&mut self) {
+        if self.running() {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            self.end = Some((End::Cancelled, self.started.elapsed()));
+        }
+    }
+
+    #[cfg(test)]
+    fn pid(&self) -> u32 {
+        self.child.id()
+    }
+}
+
+/// A run that is dropped, for example when the user quits, stops its child too.
+impl Drop for Run {
+    fn drop(&mut self) {
+        self.cancel();
+    }
 }
 
 /// Send each line of `pipe` on `tx` until the pipe closes. A line that is not UTF-8 is
@@ -123,6 +144,19 @@ pub(super) mod tests {
         // The two pipes are read on two threads, so only the order within each is fixed.
         out.sort();
         assert_eq!(out, [("one", false), ("three", false), ("two", true)]);
+    }
+
+    #[test]
+    fn cancel() {
+        let mut run = Run::start("sleep", vec!["30".into()]).unwrap();
+        let pid = run.pid();
+        run.cancel();
+        assert_eq!(run.end.map(|e| e.0), Some(End::Cancelled));
+        assert!(run.end.unwrap().1 < Duration::from_secs(5));
+        // The child is gone: no process, and no zombie, has its id.
+        assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+        run.poll();
+        assert_eq!(run.end.map(|e| e.0), Some(End::Cancelled));
     }
 
     #[test]

@@ -159,7 +159,7 @@ fn hints(p: Pane) -> String {
         Pane::Options => "j/k move  Space change  +/- jobs  ",
         Pane::Output => "",
     };
-    format!(" {own}Tab pane  1-4 jump  r run  q quit")
+    format!(" {own}Tab pane  r run  c cancel  q quit")
 }
 
 /// A pane that is a list: each row with its box, the count in the title, the cursor in
