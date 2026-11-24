@@ -113,6 +113,12 @@ pub struct App {
     pub program: String,
     /// The last run, while it runs and after it ends.
     pub run: Option<Run>,
+    /// The top line of the output pane; `None` follows the end of the output.
+    pub top: Option<usize>,
+    /// How many columns the output is moved to the left.
+    pub left: usize,
+    /// The rows inside the output pane, as the last frame drew it.
+    pub view_height: usize,
     /// `q` was pressed while a run was active, and needs a second `q`.
     quit_asked: bool,
     /// The first `g` of `gg` was pressed.
@@ -134,6 +140,9 @@ impl Default for App {
             jobs: None,
             program: "antlion".to_string(),
             run: None,
+            top: None,
+            left: 0,
+            view_height: 0,
             quit_asked: false,
             g: false,
         }
@@ -167,9 +176,49 @@ impl App {
             return;
         }
         match Run::start(&self.program, args) {
-            Ok(r) => self.run = Some(r),
+            Ok(r) => {
+                self.run = Some(r);
+                self.top = None;
+                self.left = 0;
+            }
             Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
         }
+    }
+
+    /// The first line the output pane shows.
+    pub fn output_top(&self) -> usize {
+        let len = self.run.as_ref().map_or(0, |r| r.lines.len());
+        let last = len.saturating_sub(self.view_height);
+        self.top.map_or(last, |t| t.min(last))
+    }
+
+    /// Move the output by `step` lines. Reaching the end follows the output again.
+    fn scroll(&mut self, step: isize) {
+        let len = self.run.as_ref().map_or(0, |r| r.lines.len());
+        let last = len.saturating_sub(self.view_height);
+        let to = (self.output_top() as isize + step).clamp(0, last as isize) as usize;
+        self.top = (to < last).then_some(to);
+    }
+
+    /// The keys of the output pane. True when the key was one of them.
+    fn output_key(&mut self, k: KeyEvent, g: bool) -> bool {
+        let half = (self.view_height / 2).max(1) as isize;
+        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        match k.code {
+            KeyCode::Char('j') | KeyCode::Down => self.scroll(1),
+            KeyCode::Char('k') | KeyCode::Up => self.scroll(-1),
+            KeyCode::Char('d') if ctrl => self.scroll(half),
+            KeyCode::Char('u') if ctrl => self.scroll(-half),
+            KeyCode::PageDown => self.scroll(half * 2),
+            KeyCode::PageUp => self.scroll(-half * 2),
+            KeyCode::Char('g') if g => self.scroll(isize::MIN / 2),
+            KeyCode::Char('G') => self.top = None,
+            KeyCode::Char('l') | KeyCode::Right => self.left += 8,
+            KeyCode::Char('h') | KeyCode::Left => self.left = self.left.saturating_sub(8),
+            KeyCode::Char('0') => self.left = 0,
+            _ => return false,
+        }
+        true
     }
 
     /// The keys of the options pane. True when the key was one of them.
@@ -263,6 +312,15 @@ impl App {
 
         if self.focus == Pane::Options && self.option_key(k.code) {
             return;
+        }
+        if self.focus == Pane::Output {
+            if k.code == KeyCode::Char('g') && !g {
+                self.g = true;
+                return;
+            }
+            if self.output_key(k, g) {
+                return;
+            }
         }
 
         match k.code {
@@ -405,6 +463,49 @@ mod tests {
         assert!(!app.running());
         keys(&mut app, "q");
         assert!(app.quit);
+    }
+
+    /// An app whose run printed `n` lines, with an output pane `h` rows high.
+    fn with_output(n: usize, h: usize) -> App {
+        let script = format!("seq 1 {n}");
+        let mut r = Run::start("sh", vec!["-c".into(), script]).unwrap();
+        super::super::runner::tests::finish(&mut r);
+        App {
+            run: Some(r),
+            view_height: h,
+            focus: Pane::Output,
+            ..App::default()
+        }
+    }
+
+    #[test]
+    fn scroll() {
+        let mut app = with_output(100, 10);
+        assert_eq!(app.output_top(), 90);
+        keys(&mut app, "k");
+        assert_eq!((app.output_top(), app.top), (89, Some(89)));
+        keys(&mut app, "gg");
+        assert_eq!(app.output_top(), 0);
+        keys(&mut app, "k");
+        assert_eq!(app.output_top(), 0);
+        press(&mut app, KeyCode::Char('d'), KeyModifiers::CONTROL);
+        assert_eq!(app.output_top(), 5);
+        press(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL);
+        assert_eq!(app.output_top(), 0);
+        keys(&mut app, "G");
+        assert_eq!(app.top, None);
+        // Down at the end stays at the end, and follows.
+        keys(&mut app, "j");
+        assert_eq!((app.output_top(), app.top), (90, None));
+        keys(&mut app, "lll h");
+        assert_eq!(app.left, 16);
+        keys(&mut app, "0");
+        assert_eq!(app.left, 0);
+
+        // Output shorter than the pane never scrolls.
+        let mut app = with_output(3, 10);
+        keys(&mut app, "kggj");
+        assert_eq!(app.output_top(), 0);
     }
 
     #[test]

@@ -28,14 +28,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         return;
     }
 
-    let [top, output, command, status, keys] = Layout::vertical([
-        Constraint::Percentage(40),
-        Constraint::Min(3),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas(area);
+    let [top, output, command, status, keys] = rows(area);
     let [pairs, reports, options] = Layout::horizontal([
         Constraint::Percentage(35),
         Constraint::Percentage(35),
@@ -120,8 +113,16 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
     let block =
         frame(app, Pane::Output).title(format!(" Output: {} ", super::command::line(&r.args)));
     let height = block.inner(area).height as usize;
-    let top = r.lines.len().saturating_sub(height);
-    let lines: Vec<Line> = r.lines[top..]
+    let last = r.lines.len().saturating_sub(height);
+    let top = app.top.map_or(last, |t| t.min(last));
+    let end = (top + height).min(r.lines.len());
+    let shown = if end > top {
+        format!(" lines {}-{} of {} ", top + 1, end, r.lines.len())
+    } else {
+        " no output ".to_string()
+    };
+    let block = block.title(Line::from(shown).right_aligned());
+    let lines: Vec<Line> = r.lines[top..end]
         .iter()
         .map(|l| {
             let style = if l.err {
@@ -132,7 +133,28 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
             Line::styled(l.text.as_str(), style)
         })
         .collect();
-    f.render_widget(Paragraph::new(lines).block(block), area);
+    let left = u16::try_from(app.left).unwrap_or(u16::MAX);
+    f.render_widget(Paragraph::new(lines).block(block).scroll((0, left)), area);
+}
+
+/// The rows inside the output pane for a screen of `size`, as `draw` lays it out.
+pub fn output_height(size: ratatui::layout::Size) -> usize {
+    let area = Rect::new(0, 0, size.width, size.height);
+    let [_, output, ..] = rows(area);
+    output.height.saturating_sub(2) as usize
+}
+
+/// The five rows of the screen: the three lists, the output, the command, the status and
+/// the key hints.
+fn rows(area: Rect) -> [Rect; 5] {
+    Layout::vertical([
+        Constraint::Percentage(40),
+        Constraint::Min(3),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(area)
 }
 
 /// The state of a run on one line: running or how it ended, its time and its lines.
@@ -157,7 +179,7 @@ fn hints(p: Pane) -> String {
     let own = match p {
         Pane::Pairs | Pane::Reports => "j/k move  Space select  a all  A none  ",
         Pane::Options => "j/k move  Space change  +/- jobs  ",
-        Pane::Output => "",
+        Pane::Output => "j/k scroll  ^D/^U page  gg/G top/end  h/l side  ",
     };
     format!(" {own}Tab pane  r run  c cancel  q quit")
 }

@@ -53,6 +53,7 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     let io = |e: std::io::Error| Error::failed(format!("terminal: {e}"));
     while !app.quit {
         app.tick();
+        app.view_height = ui::output_height(terminal.size().map_err(io)?);
         terminal.draw(|f| ui::draw(f, app)).map_err(io)?;
         if event::poll(TICK).map_err(io)? {
             // A key is reported on press and, on some terminals, on release too.
