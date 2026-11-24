@@ -92,6 +92,40 @@ impl Report {
         }
     }
 
+    /// What the report shows, on one line, as `help.md` says it.
+    #[cfg_attr(not(feature = "interactive"), allow(dead_code))]
+    pub fn about(self) -> &'static str {
+        match self {
+            Report::Size => "total wasm byte size",
+            Report::Sections => "per-section byte breakdown",
+            Report::Imports => "which host functions each side imports",
+            Report::Interface => "every exported function's signature",
+            Report::Meta => {
+                "the protocol each build needs, its metadata text, and every type, error and event its spec declares"
+            }
+            Report::Returns => "what each function answers, side by side",
+            Report::Cost => {
+                "metered cost of calling each function, module cached as on chain, split into instantiate and run, each call measured 3 times, and the cost to fail of every call that fails at any input"
+            }
+            Report::Scaling => "how the cost of each function grows with its size, 1 to 64",
+            Report::Ledger => "what each function leaves in storage: class, key and value",
+            Report::Access => {
+                "which ledger entries each call reads and writes, their sizes, and every storage host call it makes, run as the network runs it"
+            }
+            Report::Trace => {
+                "every host call each call makes, in order, with its arguments, counted and lined up side by side"
+            }
+            Report::Ttl => {
+                "how long each entry lives, the rent of the deploy and of each call, and what each side does once its entries expire"
+            }
+            Report::Sequence => "every function called in order on one deploy, twice over",
+            Report::Events => "the events each function emits, and the diagnostics of a failure",
+            Report::Opcodes => "opcode histogram, bucketed by kind",
+            Report::Functions => "per-function size and complexity",
+            Report::Layout => "declared memory, globals and tables",
+        }
+    }
+
     /// The report with this name.
     pub fn parse(s: &str) -> Result<Report> {
         Report::ALL
