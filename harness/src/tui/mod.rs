@@ -3,6 +3,7 @@
 
 mod app;
 mod catalog;
+mod command;
 mod ui;
 
 use std::{
