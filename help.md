@@ -13,8 +13,8 @@ COMMANDS
 
     --build <contract>... compile each <contract>/{sdk,solang} into out/<name>/
     --compare <name>...   diff both builds of each contract, in the order given
-    --interactive         open a terminal UI to pick pairs, reports and options, run
-                          them, and search the output; press ? in it for every key
+    --interactive         open a terminal UI that suggests each word of a command as
+                          you type it, runs it, and searches its output
     --help                print this help
     --version             print the version
 
