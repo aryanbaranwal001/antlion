@@ -101,12 +101,31 @@ pub fn draw(f: &mut Frame, app: &App) {
             Paragraph::new(format!(" {s}")).style(Style::new().fg(Color::Yellow)),
             status,
         );
+    } else if let Some(r) = &app.run {
+        f.render_widget(Paragraph::new(run_state(r)), status);
     }
     f.render_widget(
         Paragraph::new(Line::from(hints(app.focus)))
             .style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
+}
+
+/// The state of a run on one line: running or how it ended, its time and its lines.
+fn run_state(r: &super::runner::Run) -> String {
+    use super::runner::End;
+    let (state, time) = match r.end {
+        None => ("running".to_string(), r.started.elapsed()),
+        Some((End::Exited(Some(0)), t)) => ("done".to_string(), t),
+        Some((End::Exited(Some(c)), t)) => (format!("failed, exit {c}"), t),
+        Some((End::Exited(None), t)) => ("stopped by a signal".to_string(), t),
+        Some((End::Cancelled, t)) => ("cancelled".to_string(), t),
+    };
+    format!(
+        " {state}  {:.1} s  {} lines",
+        time.as_secs_f64(),
+        r.lines.len()
+    )
 }
 
 /// The keys of the pane that has the focus, then the keys that work everywhere.
@@ -116,7 +135,7 @@ fn hints(p: Pane) -> String {
         Pane::Options => "j/k move  Space change  +/- jobs  ",
         Pane::Output => "",
     };
-    format!(" {own}Tab pane  1-4 jump  q quit")
+    format!(" {own}Tab pane  1-4 jump  r run  q quit")
 }
 
 /// A pane that is a list: each row with its box, the count in the title, the cursor in

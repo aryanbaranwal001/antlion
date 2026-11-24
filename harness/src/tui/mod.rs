@@ -4,6 +4,7 @@
 mod app;
 mod catalog;
 mod command;
+mod runner;
 mod ui;
 
 use std::{
@@ -34,6 +35,11 @@ pub fn run() -> Result<()> {
     let dir = std::env::current_dir()
         .map_err(|e| Error::failed(format!("cannot read the working directory: {e}")))?;
     let mut app = App::new(catalog::pairs(&dir));
+    // A run is antlion itself again, so the command shown is the command that runs.
+    app.program = std::env::current_exe()
+        .map_err(|e| Error::failed(format!("cannot find the antlion binary: {e}")))?
+        .to_string_lossy()
+        .into_owned();
     app.status = catalog::root_warning(&dir);
 
     // `init` also puts the terminal back when a panic happens, so the shell stays usable.
@@ -46,6 +52,7 @@ pub fn run() -> Result<()> {
 fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
     let io = |e: std::io::Error| Error::failed(format!("terminal: {e}"));
     while !app.quit {
+        app.tick();
         terminal.draw(|f| ui::draw(f, app)).map_err(io)?;
         if event::poll(TICK).map_err(io)? {
             // A key is reported on press and, on some terminals, on release too.

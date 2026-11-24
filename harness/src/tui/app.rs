@@ -4,7 +4,8 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::catalog::Pair;
-use super::command::Selection;
+use super::command::{self, Selection};
+use super::runner::Run;
 use crate::cli::Mode;
 use crate::compare::Report;
 
@@ -108,6 +109,10 @@ pub struct App {
     pub mode: Mode,
     /// `None` leaves the number of threads to antlion.
     pub jobs: Option<usize>,
+    /// The program a run starts: the antlion binary itself.
+    pub program: String,
+    /// The last run, while it runs and after it ends.
+    pub run: Option<Run>,
     /// The first `g` of `gg` was pressed.
     g: bool,
 }
@@ -125,6 +130,8 @@ impl Default for App {
             json: false,
             mode: Mode::Totals,
             jobs: None,
+            program: "antlion".to_string(),
+            run: None,
             g: false,
         }
     }
@@ -136,6 +143,25 @@ impl App {
             pair_pick: Pick::new(pairs.len()),
             pairs,
             ..App::default()
+        }
+    }
+
+    /// Take the new output of the run.
+    pub fn tick(&mut self) {
+        if let Some(r) = &mut self.run {
+            r.poll();
+        }
+    }
+
+    /// Start the command of the selection, unless the CLI refuses it or a run is active.
+    fn start(&mut self) {
+        let args = self.selection().args();
+        if command::refusal(&args).is_some() || self.run.as_ref().is_some_and(Run::running) {
+            return;
+        }
+        match Run::start(&self.program, args) {
+            Ok(r) => self.run = Some(r),
+            Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
         }
     }
 
@@ -234,6 +260,7 @@ impl App {
         match k.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
+            KeyCode::Char('r') => self.start(),
             KeyCode::Tab => self.focus = self.focus.next(1),
             KeyCode::BackTab => self.focus = self.focus.next(-1),
             KeyCode::Char(c @ '1'..='4') => self.focus = Pane::ALL[c as usize - '1' as usize],
