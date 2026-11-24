@@ -136,6 +136,7 @@ EVERYWHERE
     Tab  Shift+Tab   next pane, pane before
     1 2 3 4          pairs, reports, options, output
     r                run the command
+    y                copy the command
     b                build the selected pairs
     c                cancel the run
     :                command palette

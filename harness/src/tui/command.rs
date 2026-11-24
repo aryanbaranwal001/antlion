@@ -99,6 +99,34 @@ pub fn file_name(args: &[String]) -> String {
     format!("{name}.{ext}")
 }
 
+/// The terminal code that puts `text` in the clipboard: OSC 52. It works over SSH and in
+/// tmux, and needs no clipboard program.
+pub fn osc52(text: &str) -> String {
+    format!("\x1b]52;c;{}\x07", base64(text.as_bytes()))
+}
+
+/// `bytes` in standard base64, with `=` padding.
+fn base64(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ABC[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// `args` as one line to type in a shell, after `antlion`.
 pub fn line(args: &[String]) -> String {
     let mut out = String::from("antlion");
@@ -242,6 +270,19 @@ mod tests {
             file_name(&sel(&["my pair"], &Report::ALL).args()),
             "antlion_my-pair_all.txt"
         );
+    }
+
+    #[test]
+    fn base64_and_osc52() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(
+            base64(b"antlion --compare flow"),
+            "YW50bGlvbiAtLWNvbXBhcmUgZmxvdw=="
+        );
+        assert_eq!(osc52("foo"), "\x1b]52;c;Zm9v\x07");
     }
 
     #[test]

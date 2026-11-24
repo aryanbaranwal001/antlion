@@ -183,6 +183,7 @@ pub enum Ask {
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Act {
     Help,
+    Copy,
     Run,
     Build,
     Cancel,
@@ -250,6 +251,8 @@ pub struct App {
     /// The help for one item, while it is open: its title, its lines and the first line
     /// shown.
     pub info: Option<(String, Vec<String>, usize)>,
+    /// Text to put in the clipboard, which the loop sends to the terminal after the draw.
+    pub copy: Option<String>,
     /// `q` was pressed while a run was active, and needs a second `q`.
     quit_asked: bool,
     /// The first `g` of `gg` was pressed.
@@ -278,6 +281,7 @@ impl Default for App {
             palette_cur: 0,
             help: None,
             info: None,
+            copy: None,
             quit_asked: false,
             g: false,
         }
@@ -498,6 +502,7 @@ impl App {
         let mut v = vec![
             e("help: every key, and the inputs", "?", Act::Help),
             e("run the command", "r", Act::Run),
+            e("copy the command", "y", Act::Copy),
             e("build the selected pairs", "b", Act::Build),
             e("cancel the run", "c", Act::Cancel),
             e("save the output to a file", "s", Act::Save),
@@ -564,6 +569,11 @@ impl App {
     fn act(&mut self, a: Act) {
         match a {
             Act::Help => self.help = Some(0),
+            Act::Copy => {
+                let line = command::line(&self.selection().args());
+                self.status = Some(format!("copied: {line}"));
+                self.copy = Some(line);
+            }
             Act::Run => self.start(),
             Act::Build => self.build(),
             Act::Cancel => self.tabs.iter_mut().for_each(|t| t.run.cancel()),
@@ -859,6 +869,7 @@ impl App {
             }
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
             KeyCode::Char('?') => self.help = Some(0),
+            KeyCode::Char('y') => self.act(Act::Copy),
             KeyCode::Char('K') => self.info = self.info_at_cursor(),
             KeyCode::Char(':') => {
                 self.palette_cur = 0;
@@ -1044,6 +1055,18 @@ mod tests {
         let (title, lines, _) = app.info.clone().unwrap();
         assert_eq!(title, "option jobs");
         assert!(lines[0].starts_with("--jobs: threads"));
+    }
+
+    #[test]
+    fn copy() {
+        let mut app = App::new(vec![pair("flow")]);
+        keys(&mut app, " y");
+        assert_eq!(app.copy.as_deref(), Some("antlion --compare flow --report"));
+        assert!(
+            app.status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("copied: "))
+        );
     }
 
     #[test]

@@ -57,6 +57,13 @@ fn event_loop(terminal: &mut DefaultTerminal, app: &mut App) -> Result<()> {
         app.tick();
         app.view_height = ui::output_height(terminal.size().map_err(io)?);
         terminal.draw(|f| ui::draw(f, app)).map_err(io)?;
+        if let Some(text) = app.copy.take() {
+            use std::io::Write;
+            let mut out = stdout();
+            out.write_all(command::osc52(&text).as_bytes())
+                .map_err(io)?;
+            out.flush().map_err(io)?;
+        }
         if event::poll(TICK).map_err(io)? {
             // A key is reported on press and, on some terminals, on release too.
             if let Event::Key(k) = event::read().map_err(io)?
