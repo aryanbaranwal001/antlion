@@ -87,6 +87,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Some(p) = &app.prompt {
         let label = match p.ask {
             Ask::Search => "/",
+            Ask::Save => "save to: ",
+            Ask::Overwrite => "file is there, y to write over it: ",
         };
         f.render_widget(Paragraph::new(format!(" {label}{}", p.text)), command);
         let x = command.x + 1 + (label.chars().count() + p.text.chars().count()) as u16;
@@ -201,7 +203,7 @@ fn hints(p: Pane) -> String {
     let own = match p {
         Pane::Pairs | Pane::Reports => "j/k move  Space select  a all  A none  ",
         Pane::Options => "j/k move  Space change  +/- jobs  ",
-        Pane::Output => "j/k scroll  ^D/^U page  gg/G ends  h/l side  / search  n/N  [/] tab  ",
+        Pane::Output => "j/k ^D/^U gg/G h/l scroll  / n N search  [ ] tab  s save  ",
     };
     format!(" {own}Tab pane  r run  c cancel  q quit")
 }

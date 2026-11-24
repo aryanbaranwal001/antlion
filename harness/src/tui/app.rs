@@ -142,6 +142,10 @@ impl Tab {
 pub enum Ask {
     /// A search in the output.
     Search,
+    /// A file name to save the output of the tab to.
+    Save,
+    /// Whether to write over the file the text names. `y` agrees.
+    Overwrite,
 }
 
 /// A line the user types into, shown in place of the command line. It gets every key
@@ -243,6 +247,15 @@ impl App {
     /// A key while the prompt is open: type, delete, confirm or give up.
     fn prompt_key(&mut self, k: KeyEvent) {
         let Some(p) = &mut self.prompt else { return };
+        if p.ask == Ask::Overwrite {
+            let p = self.prompt.take().expect("the prompt is open");
+            if k.code == KeyCode::Char('y') {
+                self.save(&p.text);
+            } else {
+                self.status = Some(format!("not saved: {} is there", p.text));
+            }
+            return;
+        }
         match k.code {
             KeyCode::Char(c) => p.text.push(c),
             KeyCode::Backspace => {
@@ -270,10 +283,34 @@ impl App {
                             t.show_line(l, h);
                         }
                     }
+                    Ask::Save if p.text.is_empty() => {}
+                    Ask::Save if std::path::Path::new(&p.text).exists() => {
+                        self.prompt = Some(Prompt {
+                            ask: Ask::Overwrite,
+                            text: p.text,
+                        });
+                    }
+                    Ask::Save => self.save(&p.text),
+                    Ask::Overwrite => unreachable!("handled above"),
                 }
             }
             _ => {}
         }
+    }
+
+    /// Write every line of the tab to `path`, stdout and stderr in the order they came.
+    fn save(&mut self, path: &str) {
+        let Some(t) = self.current() else { return };
+        let mut text = String::new();
+        for l in &t.run.lines {
+            text.push_str(&l.text);
+            text.push('\n');
+        }
+        let n = t.run.lines.len();
+        self.status = Some(match std::fs::write(path, text) {
+            Ok(()) => format!("saved {n} lines to {path}"),
+            Err(e) => format!("cannot save to {path}: {e}"),
+        });
     }
 
     /// Move to the next match of the search, or the one before.
@@ -343,6 +380,12 @@ impl App {
                 self.prompt = Some(Prompt {
                     ask: Ask::Search,
                     text: String::new(),
+                })
+            }
+            KeyCode::Char('s') => {
+                self.prompt = Some(Prompt {
+                    ask: Ask::Save,
+                    text: command::file_name(&t.run.args),
                 })
             }
             KeyCode::Char('n') => self.next_match(1),
@@ -674,6 +717,40 @@ mod tests {
         press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert!(app.prompt.is_none());
         assert_eq!(app.tabs[0].search.as_ref().unwrap().query, "5");
+    }
+
+    #[test]
+    fn save() {
+        let d = super::super::catalog::tests::scratch("save");
+        let path = d.join("out.txt").to_string_lossy().into_owned();
+        let mut app = with_output(3, 10);
+        keys(&mut app, "s");
+        assert_eq!(app.prompt.as_ref().unwrap().text, "antlion.txt");
+        // Clear the default name and type the path.
+        for _ in 0.."antlion.txt".len() {
+            press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        }
+        keys(&mut app, &path);
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "1\n2\n3\n");
+
+        // A file that is there needs a `y`; any other key keeps it.
+        std::fs::write(&path, "old").unwrap();
+        app.prompt = Some(Prompt {
+            ask: Ask::Save,
+            text: path.clone(),
+        });
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.prompt.as_ref().unwrap().ask, Ask::Overwrite);
+        keys(&mut app, "n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old");
+        app.prompt = Some(Prompt {
+            ask: Ask::Save,
+            text: path.clone(),
+        });
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        keys(&mut app, "y");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "1\n2\n3\n");
     }
 
     #[test]

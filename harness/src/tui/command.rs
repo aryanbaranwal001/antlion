@@ -65,6 +65,40 @@ pub fn refusal(args: &[String]) -> Option<String> {
     Some(first.trim_start_matches("[err] ").to_string())
 }
 
+/// A file name for the output of a `--compare` run of `args`: the pairs and the reports,
+/// with `.json` for JSON output and `.txt` for text. For example `antlion_flow_cost.txt`.
+pub fn file_name(args: &[String]) -> String {
+    let part = |flag: &str| -> Vec<&str> {
+        args.iter()
+            .skip_while(|a| *a != flag)
+            .skip(1)
+            .take_while(|a| !a.starts_with("--"))
+            .map(String::as_str)
+            .collect()
+    };
+    let mut words = vec!["antlion"];
+    words.extend(part("--compare"));
+    words.extend(part("--report"));
+    let mut name: String = words
+        .join("_")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    name.truncate(80);
+    let ext = if args.iter().any(|a| a == "--json") {
+        "json"
+    } else {
+        "txt"
+    };
+    format!("{name}.{ext}")
+}
+
 /// `args` as one line to type in a shell, after `antlion`.
 pub fn line(args: &[String]) -> String {
     let mut out = String::from("antlion");
@@ -195,6 +229,19 @@ mod tests {
                 .is_some_and(|e| e.starts_with("`--report` needs a report name"))
         );
         assert_eq!(refusal(&sel(&["flow"], &[Report::Size]).args()), None);
+    }
+
+    #[test]
+    fn file_names() {
+        let mut s = sel(&["flow", "numeric"], &[Report::Cost]);
+        assert_eq!(file_name(&s.args()), "antlion_flow_numeric_cost.txt");
+        s.json = true;
+        s.jobs = Some(2);
+        assert_eq!(file_name(&s.args()), "antlion_flow_numeric_cost.json");
+        assert_eq!(
+            file_name(&sel(&["my pair"], &Report::ALL).args()),
+            "antlion_my-pair_all.txt"
+        );
     }
 
     #[test]
