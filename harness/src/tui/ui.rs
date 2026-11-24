@@ -121,6 +121,89 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.prompt.as_ref().is_some_and(|p| p.ask == Ask::Palette) {
         palette(f, app);
     }
+    if let Some(top) = app.help {
+        help(f, top);
+    }
+}
+
+/// Every key of the screen, by where it works.
+const KEYS: &str = "\
+EVERYWHERE
+
+    Tab  Shift+Tab   next pane, pane before
+    1 2 3 4          pairs, reports, options, output
+    r                run the command
+    b                build the selected pairs
+    c                cancel the run
+    :                command palette
+    ?                this help
+    q                quit; during a run, press it twice
+    Ctrl+C           quit at once, and stop the run
+
+PAIRS AND REPORTS
+
+    j k              down, up
+    gg G             first, last
+    Space            select or clear the item
+    a A              select all, clear all (of the items shown)
+    /                filter; Esc clears it, the selection stays
+
+OPTIONS
+
+    j k              down, up
+    Space  Enter     change the value
+    + -              more or fewer jobs; below 1 is auto
+
+OUTPUT
+
+    j k              one line down, up
+    Ctrl+D Ctrl+U    half a page down, up
+    PgDn PgUp        a page down, up
+    gg G             top; end, which follows new output
+    h l  0           left, right, back to the start of the line
+    /                search; case counts only with a capital
+    n N              next match, match before
+    [ ]              tab before, next tab
+    s                save the output to a file
+
+PALETTE AND PROMPTS
+
+    type             filter the palette, or type the text
+    Up Down          move in the palette (also Tab, Ctrl+N, Ctrl+P)
+    Enter            do it
+    Esc              close
+";
+
+/// The help overlay: every key, then the inputs part of `help.md`.
+fn help(f: &mut Frame, top: usize) {
+    let help_md = include_str!("../../../help.md");
+    let inputs = help_md
+        .split("\nINPUTS\n")
+        .nth(1)
+        .and_then(|s| s.split("\nBUNDLED CONTRACTS\n").next())
+        .unwrap_or("");
+    let text = format!("{KEYS}\nINPUTS\n{inputs}");
+    let lines: Vec<Line> = text.lines().map(Line::raw).collect();
+
+    let area = f.area();
+    let r = Rect::new(
+        2,
+        1,
+        area.width.saturating_sub(4),
+        area.height.saturating_sub(2),
+    );
+    let top = top.min(lines.len().saturating_sub(1));
+    let block = Block::bordered()
+        .title(" Help ")
+        .title_bottom(Line::from(" j/k scroll  Esc close ").right_aligned())
+        .border_style(Style::new().fg(Color::Cyan));
+    f.render_widget(Clear, r);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .scroll((u16::try_from(top).unwrap_or(u16::MAX), 0)),
+        r,
+    );
 }
 
 /// The command palette: a box in the middle of the screen, with the entries that match.
@@ -242,7 +325,7 @@ fn hints(p: Pane) -> String {
         Pane::Options => "j/k move  Space change  +/- jobs  ",
         Pane::Output => "j/k ^D/^U gg/G h/l scroll  / n N search  [ ] tab  s save  ",
     };
-    format!(" {own}Tab  r run  b build  c stop  q quit")
+    format!(" {own}Tab  r run  b build  ? help  q quit")
 }
 
 /// A pane that is a list: each row with its box, the count in the title, the cursor in
@@ -411,6 +494,22 @@ pub(super) mod tests {
         assert!(s.iter().any(|r| r.contains("oops")));
         assert!(s.iter().all(|r| !r.contains("line1 ")));
         assert!(s[22].contains("done") && s[22].contains("101 lines  tab 1 of 1"));
+    }
+
+    #[test]
+    fn help_overlay() {
+        let mut app = App::default();
+        app.help = Some(0);
+        let s = screen(&app, 100, 60);
+        assert!(s[1].contains(" Help "));
+        assert!(s[2].contains("EVERYWHERE"));
+        assert!(s.iter().any(|r| r.contains("filter; Esc clears it")));
+        app.help = Some(48);
+        let s = screen(&app, 100, 60);
+        assert!(
+            s.iter()
+                .any(|r| r.contains("small       values that ride inline"))
+        );
     }
 
     #[test]

@@ -182,6 +182,7 @@ pub enum Ask {
 /// What a palette entry does.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Act {
+    Help,
     Run,
     Build,
     Cancel,
@@ -244,6 +245,8 @@ pub struct App {
     pub prompt: Option<Prompt>,
     /// The row under the cursor of the palette, in the entries that match.
     pub palette_cur: usize,
+    /// The help overlay, while it is open: the first line it shows.
+    pub help: Option<usize>,
     /// `q` was pressed while a run was active, and needs a second `q`.
     quit_asked: bool,
     /// The first `g` of `gg` was pressed.
@@ -270,6 +273,7 @@ impl Default for App {
             view_height: 0,
             prompt: None,
             palette_cur: 0,
+            help: None,
             quit_asked: false,
             g: false,
         }
@@ -452,6 +456,7 @@ impl App {
             act,
         };
         let mut v = vec![
+            e("help: every key, and the inputs", "?", Act::Help),
             e("run the command", "r", Act::Run),
             e("build the selected pairs", "b", Act::Build),
             e("cancel the run", "c", Act::Cancel),
@@ -518,6 +523,7 @@ impl App {
     /// Do what a palette entry says.
     fn act(&mut self, a: Act) {
         match a {
+            Act::Help => self.help = Some(0),
             Act::Run => self.start(),
             Act::Build => self.build(),
             Act::Cancel => self.tabs.iter_mut().for_each(|t| t.run.cancel()),
@@ -739,6 +745,15 @@ impl App {
     }
 
     pub fn key(&mut self, k: KeyEvent) {
+        if let Some(top) = &mut self.help {
+            match k.code {
+                KeyCode::Char('j') | KeyCode::Down => *top += 1,
+                KeyCode::Char('k') | KeyCode::Up => *top = top.saturating_sub(1),
+                KeyCode::Esc | KeyCode::Char('?' | 'q') => self.help = None,
+                _ => {}
+            }
+            return;
+        }
         if self.prompt.is_some() {
             self.prompt_key(k);
             return;
@@ -794,6 +809,7 @@ impl App {
                 }
             }
             KeyCode::Char('c') if k.modifiers.contains(KeyModifiers::CONTROL) => self.quit = true,
+            KeyCode::Char('?') => self.help = Some(0),
             KeyCode::Char(':') => {
                 self.palette_cur = 0;
                 self.prompt = Some(Prompt {
@@ -940,6 +956,25 @@ mod tests {
         keys(&mut app, ":zzzzz");
         press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
         assert!(!app.quit && app.prompt.is_none());
+    }
+
+    #[test]
+    fn help() {
+        let mut app = App::default();
+        keys(&mut app, "?");
+        assert_eq!(app.help, Some(0));
+        // While help is open, keys scroll it and do nothing else.
+        keys(&mut app, "jjk2r");
+        assert_eq!(app.help, Some(1));
+        assert_eq!(app.focus, Pane::Pairs);
+        keys(&mut app, "q");
+        assert_eq!(app.help, None);
+        assert!(!app.quit);
+        keys(&mut app, ":help");
+        press(&mut app, KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(app.help, Some(0));
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(app.help, None);
     }
 
     #[test]
