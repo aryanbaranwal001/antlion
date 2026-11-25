@@ -113,12 +113,12 @@ do in the UI you can also do in a shell or a script. `y` copies the command.
 │                                       ││each function, ...       │
 └───────────────────────────────────────┘└─────────────────────────┘
  done  0.9 s  150 lines  tab 1 of 1
- Tab complete  ↑↓ pick  Enter run  Esc output  ^P palette  ^R history  ^C quit
+ ↑↓ pick  Enter/Tab add  ^R run  Esc output  ^P palette  ^C quit
 ```
 
 **The command line.** It starts with `antlion`, which you cannot change, and you type the
 rest. When the CLI would refuse what you typed, the lower border shows the reason in red,
-and `Enter` does not run it.
+and `Ctrl+R` does not run it.
 
 **The suggestions.** The pane on the right lists every word that can come at the cursor,
 in the order the CLI takes them: a command first, then the pairs after `--compare` (or the
@@ -126,8 +126,8 @@ pair folders after `--build`), then `--report`, then the reports, then `--json`,
 `--dump` and `--jobs`. A word you already typed is not suggested again, and `--detail` and
 `--dump` never go together. The word you are typing filters the list with fuzzy search:
 the letters must come in order, with gaps allowed, so `stc` finds `struct_class`. The best
-match comes first. `Tab` puts in the suggestion under the cursor and a space after it, so
-the next words show at once.
+match comes first. `Enter` or `Tab` puts in the suggestion under the cursor and a space
+after it, so the next words show at once.
 
 **The details.** The pane under the suggestions shows the help for the suggestion under the
 cursor: what a command or a flag does, what a report measures and which inputs it calls
@@ -141,9 +141,8 @@ moves them back to the command line.
 
 | Key | Where | Action |
 |---|---|---|
-| `Tab` | Command line | Put in the suggestion under the cursor |
+| `Enter`, `Tab` | Command line | Put in the suggestion under the cursor |
 | `Up`, `Down` | Command line | Move in the suggestions |
-| `Enter` | Command line | Run the command |
 | `Ctrl+W`, `Ctrl+U` | Command line | Delete the word before the cursor, or all text before it |
 | `Esc` | Command line | Go to the output |
 | `i` | Output | Go back to the command line |
@@ -152,16 +151,17 @@ moves them back to the command line.
 | `[`, `]` | Output | Tab before, next tab |
 | `s` | Output | Save the output of the tab to a file |
 | `r` | Output | Run the command again |
+| `H` | Output | History of runs |
 | `c` | Output | Cancel the run |
 | `y` | Output | Copy the command |
 | `q` | Output | Quit; during a run, press it twice |
+| `Ctrl+R` | Everywhere | Run the command |
 | `Ctrl+P` | Everywhere | Command palette |
-| `Ctrl+R` | Everywhere | History of runs |
 | `Ctrl+C` | Everywhere | Quit at once, and stop the run |
 
 The output search ignores case unless you type a capital letter.
 
-**The history.** `Ctrl+R` lists your last runs. Type part of one and press `Enter`, and it
+**The history.** `H` in the output lists your last runs. Type part of one and press `Enter`, and it
 goes into the command line, ready to change or to run.
 
 **The palette.** `Ctrl+P` opens a box with every action. Type part of a name and press
