@@ -124,9 +124,9 @@ and `Ctrl+R` does not run it.
 in the order the CLI takes them: a command first, then the pairs after `--compare` (or the
 pair folders after `--build`), then `--report`, then the reports, then `--json`, `--detail`,
 `--dump` and `--jobs`. A word you already typed is not suggested again, and `--detail` and
-`--dump` never go together. `--dump` shows only once `opcodes` or `all` is typed, and
-`--detail` only once `opcodes`, `cost` or `all` is, because they change nothing else.
-Right after such a report, its flags come first, then the other reports. The word you are
+`--dump` never go together. They show only right after the report they change, before
+the other reports: `--detail` and `--dump` after `opcodes` or `all`, and `--detail` after
+`cost`. After any other report, they do not show. The word you are
 typing filters the list with fuzzy search: the letters must come in order, with gaps
 allowed, so `stc` finds `struct_class`. The best match comes first. `Enter` puts in the
 suggestion under the cursor and a space after it, so the next words show at once.
