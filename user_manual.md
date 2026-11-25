@@ -95,7 +95,7 @@ antlion --interactive
 ```
 
 Opens a terminal UI where you type a command, see the words that can come next, run it,
-and read and search its output. Start it from the project root, where `out/` and
+and read its output. Start it from the project root, where `out/` and
 `contracts/` are. It needs a terminal: in a pipe or a script it exits with 2, so use
 `--build` and `--compare` there.
 
@@ -113,7 +113,7 @@ do in the UI you can also do in a shell or a script. `y` copies the command.
 │                                       ││each function, ...       │
 └───────────────────────────────────────┘└─────────────────────────┘
  done  0.9 s  150 lines  tab 1 of 1
- Enter add  ^R run  Tab panel  ↑↓ move  ^F find  ^P palette  F1 help  ^C quit
+ Enter add  ^R run  Tab panel  ↑↓ move  ^S save  ^P palette  F1 help  ^C quit
 ```
 
 **The command line.** It starts with `antlion`, which you cannot change, and you type the
@@ -124,10 +124,12 @@ and `Ctrl+R` does not run it.
 in the order the CLI takes them: a command first, then the pairs after `--compare` (or the
 pair folders after `--build`), then `--report`, then the reports, then `--json`, `--detail`,
 `--dump` and `--jobs`. A word you already typed is not suggested again, and `--detail` and
-`--dump` never go together. The word you are typing filters the list with fuzzy search:
-the letters must come in order, with gaps allowed, so `stc` finds `struct_class`. The best
-match comes first. `Enter` or `Tab` puts in the suggestion under the cursor and a space
-after it, so the next words show at once.
+`--dump` never go together. `--dump` shows only once `opcodes` or `all` is typed, and
+`--detail` only once `opcodes`, `cost` or `all` is, because they change nothing else.
+Right after such a report, its flags come first, then the other reports. The word you are
+typing filters the list with fuzzy search: the letters must come in order, with gaps
+allowed, so `stc` finds `struct_class`. The best match comes first. `Enter` puts in the
+suggestion under the cursor and a space after it, so the next words show at once.
 
 **The details.** The pane under the suggestions shows the help for the suggestion under the
 cursor: what a command or a flag does, what a report measures and which inputs it calls
@@ -151,8 +153,6 @@ that has the focus.
 | `Ctrl+Home`, `Ctrl+End` | Start, end of the panel; in the output, `Ctrl+End` follows new output |
 | `Shift+Left`, `Shift+Right` | Scroll the output to the side |
 | `Ctrl+W`, `Ctrl+U` | Delete the word before the cursor, or all text before it |
-| `Ctrl+F` | Search the output |
-| `Ctrl+N`, `Ctrl+B` | Next match, match before |
 | `Ctrl+PgUp`, `Ctrl+PgDn` | Tab before, next tab |
 | `Ctrl+S` | Save the output of the tab to a file |
 | `Ctrl+Y` | Copy the command |
@@ -161,8 +161,6 @@ that has the focus.
 | `Ctrl+C` | Cancel the run; with no run, quit |
 | `Ctrl+Q` | Quit at once, and stop the run |
 | `Esc` | Close a box or a prompt |
-
-The output search ignores case unless you type a capital letter.
 
 **The history.** The palette entry "history of runs" lists your last runs. Type part of one
 and press `Enter`, and it goes into the command line, ready to change or to run.

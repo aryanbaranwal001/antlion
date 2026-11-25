@@ -14,7 +14,7 @@ COMMANDS
     --build <contract>... compile each <contract>/{sdk,solang} into out/<name>/
     --compare <name>...   diff both builds of each contract, in the order given
     --interactive         open a terminal UI that suggests each word of a command as
-                          you type it, runs it, and searches its output
+                          you type it, runs it, and shows its output
     --help                print this help
     --version             print the version
 
