@@ -106,6 +106,28 @@ fn compare(rest: &[&str], pairs: &[Pair]) -> Vec<Suggestion> {
     let reports = &after[..flag.unwrap_or(after.len())];
 
     let mut out = Vec::new();
+    let has = |f: &str| after.contains(&f);
+    // `--detail` and `--dump` never go together, and each is only for some reports.
+    let mode = has("--detail") || has("--dump");
+    let named = |r: &str| reports.contains(&r) || reports.contains(&"all");
+    let fits = |f: &str| match f {
+        "--detail" => !mode && (named("opcodes") || named("cost")),
+        "--dump" => !mode && named("opcodes"),
+        _ => !has(f),
+    };
+    // The flags for the report typed last come first, then the other reports, then the
+    // other flags.
+    let first: &[&str] = match reports.last() {
+        Some(&"opcodes" | &"all") => &["--detail", "--dump"],
+        Some(&"cost") => &["--detail"],
+        _ => &[],
+    };
+    out.extend(
+        first
+            .iter()
+            .filter(|f| fits(f))
+            .map(|f| suggestion(f, What::Flag)),
+    );
     if flag.is_none() && !reports.contains(&"all") {
         let names = Report::ALL.iter().map(|r| r.name());
         let all = reports.is_empty().then_some("all");
@@ -117,12 +139,8 @@ fn compare(rest: &[&str], pairs: &[Pair]) -> Vec<Suggestion> {
         );
     }
     if !reports.is_empty() {
-        let has = |f: &str| after.contains(&f);
-        // `--detail` and `--dump` never go together.
-        let mode = has("--detail") || has("--dump");
         for f in TRAILING {
-            let used = has(f) || (mode && matches!(f, "--detail" | "--dump"));
-            if !used {
+            if fits(f) && !first.contains(&f) {
                 out.push(suggestion(f, What::Flag));
             }
         }
@@ -245,21 +263,41 @@ mod tests {
         assert_eq!(all.len(), Report::ALL.len() + 1);
         assert_eq!(all.last().unwrap(), "all");
 
+        // After a report that no mode flag is for, the other reports, then the flags.
         let after_size = texts("--compare flow --report size ");
         assert!(!after_size.contains(&"size".to_string()));
         assert!(!after_size.contains(&"all".to_string()));
-        assert_eq!(after_size[after_size.len() - 4..], TRAILING);
+        assert_eq!(after_size[after_size.len() - 2..], ["--json", "--jobs"]);
+        assert!(!after_size.contains(&"--detail".to_string()));
+        assert!(!after_size.contains(&"--dump".to_string()));
 
-        assert_eq!(texts("--compare flow --report all "), TRAILING);
         assert_eq!(
-            texts("--compare flow --report size --detail "),
+            texts("--compare flow --report all "),
+            ["--detail", "--dump", "--json", "--jobs"]
+        );
+        assert_eq!(
+            texts("--compare flow --report opcodes --detail "),
             ["--json", "--jobs"]
         );
         assert!(texts("--compare flow --report size --jobs ").is_empty());
-        assert_eq!(
-            texts("--compare flow --report size --jobs 2 "),
-            ["--json", "--detail", "--dump"]
-        );
+        assert_eq!(texts("--compare flow --report size --jobs 2 "), ["--json"]);
+    }
+
+    #[test]
+    fn mode_flags_follow_their_report() {
+        // After opcodes, its flags come first, then the other reports.
+        let t = texts("--compare flow --report opcodes ");
+        assert_eq!(t[..3], ["--detail", "--dump", "size"]);
+        assert!(!t.contains(&"opcodes".to_string()));
+        assert_eq!(t[t.len() - 2..], ["--json", "--jobs"]);
+        // After cost, only --detail fits.
+        let t = texts("--compare flow --report cost ");
+        assert_eq!(t[..2], ["--detail", "size"]);
+        assert!(!t.contains(&"--dump".to_string()));
+        // A report typed before still counts, but its flags go to the end.
+        let t = texts("--compare flow --report opcodes size ");
+        assert_eq!(t[0], "sections");
+        assert_eq!(t[t.len() - 4..], ["--json", "--detail", "--dump", "--jobs"]);
     }
 
     fn details_of(before: &str) -> (String, Vec<String>) {
