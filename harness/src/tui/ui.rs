@@ -216,7 +216,7 @@ fn popup(f: &mut Frame, title: &str, lines: &[String], top: usize) {
     let top = top.min(lines.len().saturating_sub(1));
     let block = Block::bordered()
         .title(format!(" {title} "))
-        .title_bottom(Line::from(" j/k scroll  Esc close ").right_aligned())
+        .title_bottom(Line::from(" ↑↓ scroll  Esc close ").right_aligned())
         .border_style(Style::new().fg(Color::Cyan));
     f.render_widget(Clear, r);
     f.render_widget(
