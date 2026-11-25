@@ -30,8 +30,8 @@ pub struct Suggestion {
 /// The first words, in the order they are suggested.
 const COMMANDS: [&str; 4] = ["--compare", "--build", "--help", "--version"];
 
-/// The flags after the reports, in the order they are suggested.
-const TRAILING: [&str; 4] = ["--json", "--detail", "--dump", "--jobs"];
+/// The flags after the reports that fit every report, in the order they are suggested.
+const TRAILING: [&str; 2] = ["--json", "--jobs"];
 
 /// The word the cursor is at the end of: the text of `before` after its last space.
 pub fn word(before: &str) -> &str {
@@ -107,27 +107,15 @@ fn compare(rest: &[&str], pairs: &[Pair]) -> Vec<Suggestion> {
 
     let mut out = Vec::new();
     let has = |f: &str| after.contains(&f);
-    // `--detail` and `--dump` never go together, and each is only for some reports.
-    let mode = has("--detail") || has("--dump");
-    let named = |r: &str| reports.contains(&r) || reports.contains(&"all");
-    let fits = |f: &str| match f {
-        "--detail" => !mode && (named("opcodes") || named("cost")),
-        "--dump" => !mode && named("opcodes"),
-        _ => !has(f),
-    };
-    // The flags for the report typed last come first, then the other reports, then the
-    // other flags.
-    let first: &[&str] = match reports.last() {
+    // `--detail` and `--dump` change one report each, so they show only right after it,
+    // before the other reports. They never go together.
+    let mode: &[&str] = match reports.last() {
+        _ if has("--detail") || has("--dump") => &[],
         Some(&"opcodes" | &"all") => &["--detail", "--dump"],
         Some(&"cost") => &["--detail"],
         _ => &[],
     };
-    out.extend(
-        first
-            .iter()
-            .filter(|f| fits(f))
-            .map(|f| suggestion(f, What::Flag)),
-    );
+    out.extend(mode.iter().map(|f| suggestion(f, What::Flag)));
     if flag.is_none() && !reports.contains(&"all") {
         let names = Report::ALL.iter().map(|r| r.name());
         let all = reports.is_empty().then_some("all");
@@ -140,7 +128,7 @@ fn compare(rest: &[&str], pairs: &[Pair]) -> Vec<Suggestion> {
     }
     if !reports.is_empty() {
         for f in TRAILING {
-            if fits(f) && !first.contains(&f) {
+            if !has(f) {
                 out.push(suggestion(f, What::Flag));
             }
         }
@@ -294,10 +282,11 @@ mod tests {
         let t = texts("--compare flow --report cost ");
         assert_eq!(t[..2], ["--detail", "size"]);
         assert!(!t.contains(&"--dump".to_string()));
-        // A report typed before still counts, but its flags go to the end.
+        // Once another report follows, the flags of opcodes do not show at all.
         let t = texts("--compare flow --report opcodes size ");
         assert_eq!(t[0], "sections");
-        assert_eq!(t[t.len() - 4..], ["--json", "--detail", "--dump", "--jobs"]);
+        assert!(!t.iter().any(|f| f == "--detail" || f == "--dump"));
+        assert_eq!(t[t.len() - 2..], TRAILING);
     }
 
     fn details_of(before: &str) -> (String, Vec<String>) {
