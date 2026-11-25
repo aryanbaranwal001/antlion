@@ -11,7 +11,6 @@ use ratatui::{
 
 use super::app::{App, Ask, Focus};
 use super::complete;
-use super::search;
 #[cfg(test)]
 use std::path::Path;
 
@@ -49,7 +48,6 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     if let Some(p) = &app.prompt {
         let label = match p.ask {
-            Ask::Search => "/",
             Ask::Palette => ":",
             Ask::History => "history: ",
             Ask::Presets => "preset: ",
@@ -169,8 +167,6 @@ PANELS
 OUTPUT
 
     Shift+Left       scroll to the left; Shift+Right scrolls to the right
-    Ctrl+F           search; case counts only with a capital
-    Ctrl+N Ctrl+B    next match, match before
     Ctrl+PgUp        tab before; Ctrl+PgDn goes to the next tab
     Ctrl+S           save the output to a file
     Ctrl+Y           copy the command
@@ -273,30 +269,20 @@ fn output_pane(f: &mut Frame, app: &App, area: Rect) {
     let last = r.lines.len().saturating_sub(height);
     let top = t.top.map_or(last, |x| x.min(last));
     let end = (top + height).min(r.lines.len());
-    let mut shown = if end > top {
+    let shown = if end > top {
         format!(" lines {}-{} of {} ", top + 1, end, r.lines.len())
     } else {
         " no output ".to_string()
     };
-    if let Some(s) = &t.search {
-        let at = if s.hits.is_empty() { 0 } else { s.at + 1 };
-        shown = format!(" /{}  {at}/{} {shown}", s.query, s.hits.len());
-    }
     let block = block.title(Line::from(shown).right_aligned());
     let lines: Vec<Line> = r.lines[top..end]
         .iter()
         .map(|l| {
-            let mut style = if l.err {
+            let style = if l.err {
                 Style::new().fg(Color::Red)
             } else {
                 Style::new()
             };
-            if t.search
-                .as_ref()
-                .is_some_and(|s| search::holds(&l.text, &s.query))
-            {
-                style = style.bg(Color::Yellow).fg(Color::Black);
-            }
             Line::styled(l.text.as_str(), style)
         })
         .collect();
@@ -348,7 +334,7 @@ fn run_state(r: &super::runner::Run) -> String {
 }
 
 /// The most used keys, on the last row.
-const HINTS: &str = " Enter add  ^R run  Tab panel  ↑↓ move  ^F find  ^P palette  F1 help  ^C quit";
+const HINTS: &str = " Enter add  ^R run  Tab panel  ↑↓ move  ^S save  ^P palette  F1 help  ^C quit";
 
 /// A pane's border, bright when it has the focus.
 fn frame(focused: bool) -> Block<'static> {
@@ -439,7 +425,8 @@ pub(super) mod tests {
     #[test]
     fn output_follows_the_end() {
         let mut app = App::default();
-        let script = "for i in $(seq 1 100); do echo line$i; done; echo oops >&2";
+        // stdout and stderr are read on two threads, so the wait keeps `oops` last.
+        let script = "for i in $(seq 1 100); do echo line$i; done; sleep 0.2; echo oops >&2";
         let mut r = super::super::runner::Run::start(
             "sh",
             vec!["-c".into(), script.into()],

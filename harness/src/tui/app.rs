@@ -7,7 +7,6 @@ use super::catalog::Pair;
 use super::command;
 use super::complete::{self, Suggestion};
 use super::runner::Run;
-use super::search::Search;
 
 /// The panel that `Up`, `Down`, `PgUp`, `PgDn`, `Ctrl+Home` and `Ctrl+End` move in. The
 /// letters always go into the command line, whatever has the focus.
@@ -33,15 +32,13 @@ impl Focus {
 /// The most run tabs kept. A new run past this drops the oldest.
 pub const MAX_TABS: usize = 10;
 
-/// One run and how the user looks at it: where the output pane is, and the search in it.
+/// One run and how the user looks at it: where the output pane is.
 pub struct Tab {
     pub run: Run,
     /// The top line of the output pane; `None` follows the end of the output.
     pub top: Option<usize>,
     /// How many columns the output is moved to the left.
     pub left: usize,
-    /// The last search in the output.
-    pub search: Option<Search>,
     kind: Kind,
 }
 
@@ -63,7 +60,6 @@ impl Tab {
             run,
             top: None,
             left: 0,
-            search: None,
             kind: Kind::Run,
         }
     }
@@ -88,19 +84,11 @@ impl Tab {
         let to = (self.top_line(height) as isize + step).clamp(0, last as isize) as usize;
         self.top = (to < last).then_some(to);
     }
-
-    /// Scroll so that line `l` is in the middle of the output pane.
-    fn show_line(&mut self, l: usize, height: usize) {
-        self.top = Some(l.saturating_sub(height / 2));
-        self.scroll(0, height);
-    }
 }
 
 /// What a line of typed text is for.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Ask {
-    /// A search in the output.
-    Search,
     /// The command palette: the text filters the actions.
     Palette,
     /// The history of runs, in the palette box: the text filters the runs.
@@ -313,9 +301,6 @@ impl App {
                 let r = super::store::Record::new(t.run.args.clone(), exit, time.as_secs_f64());
                 ended.push(r);
             }
-            if let Some(s) = &mut t.search {
-                s.update(&t.run.lines);
-            }
         }
         if built {
             self.reload();
@@ -435,24 +420,6 @@ impl App {
             KeyCode::Enter => {
                 let p = self.prompt.take().expect("the prompt is open");
                 match p.ask {
-                    Ask::Search => {
-                        let h = self.view_height;
-                        let Some(t) = self.current_mut() else { return };
-                        if p.text.is_empty() {
-                            t.search = None;
-                            return;
-                        }
-                        let mut s = Search::new(p.text);
-                        s.update(&t.run.lines);
-                        // Start at the first match at or after the top line.
-                        let top = t.top_line(h);
-                        s.at = s.hits.iter().position(|&x| x >= top).unwrap_or(0);
-                        let line = s.hits.get(s.at).copied();
-                        t.search = Some(s);
-                        if let Some(l) = line {
-                            t.show_line(l, h);
-                        }
-                    }
                     Ask::PresetName if p.text.is_empty() => {}
                     Ask::PresetName => self.save_preset(&p.text),
                     Ask::Save if p.text.is_empty() => {}
@@ -692,15 +659,6 @@ impl App {
         });
     }
 
-    /// Move to the next match of the search, or the one before.
-    fn next_match(&mut self, step: isize) {
-        let h = self.view_height;
-        let Some(t) = self.current_mut() else { return };
-        if let Some(l) = t.search.as_mut().and_then(|s| s.step(step)) {
-            t.show_line(l, h);
-        }
-    }
-
     /// Start the command line, unless the CLI refuses it or a run is active.
     fn start(&mut self) {
         let args = self.args();
@@ -891,9 +849,6 @@ impl App {
         match k.code {
             KeyCode::Char('p') if ctrl => self.ask(Ask::Palette),
             KeyCode::Char('r') if ctrl => self.start(),
-            KeyCode::Char('f') if ctrl && self.current().is_some() => self.ask(Ask::Search),
-            KeyCode::Char('n') if ctrl => self.next_match(1),
-            KeyCode::Char('b') if ctrl => self.next_match(-1),
             KeyCode::Char('s') if ctrl => self.act(Act::Save),
             KeyCode::Char('y') if ctrl => self.act(Act::Copy),
             KeyCode::F(1) => self.help = Some(0),
@@ -948,6 +903,33 @@ mod tests {
             name: name.to_string(),
             state: super::super::catalog::State::Built,
             source: true,
+        }
+    }
+
+    /// Write `text` to `path` as a script, and wait until it can run. When another test
+    /// thread forks just then, its child holds the file open for writing for a moment, and
+    /// Linux refuses to run it with "Text file busy".
+    fn script(path: &Path, text: &str) {
+        std::fs::write(path, text).unwrap();
+        std::process::Command::new("chmod")
+            .arg("+x")
+            .arg(path)
+            .status()
+            .unwrap();
+        // A run of the script in a folder of its own, so it changes nothing of the test.
+        let probe = path.with_extension("probe");
+        std::fs::create_dir_all(&probe).unwrap();
+        let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < stop {
+            match std::process::Command::new(path)
+                .current_dir(&probe)
+                .output()
+            {
+                Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                    std::thread::sleep(std::time::Duration::from_millis(10))
+                }
+                _ => return,
+            }
         }
     }
 
@@ -1192,13 +1174,7 @@ mod tests {
     fn tasks() {
         let d = super::super::catalog::tests::scratch("tasks");
         std::fs::create_dir_all(d.join("scripts")).unwrap();
-        let script = d.join("scripts/check.sh");
-        std::fs::write(&script, "#!/bin/sh\necho task $1\n").unwrap();
-        std::process::Command::new("chmod")
-            .arg("+x")
-            .arg(&script)
-            .status()
-            .unwrap();
+        script(&d.join("scripts/check.sh"), "#!/bin/sh\necho task $1\n");
         let mut app = App {
             root: d.clone(),
             ..App::default()
@@ -1340,43 +1316,6 @@ mod tests {
     }
 
     #[test]
-    fn search() {
-        let mut app = with_output(100, 10);
-        ctrl(&mut app, 'f');
-        assert!(app.prompt.is_some());
-        // While the prompt is open, letters are its text, not the command line.
-        keys(&mut app, "5qj");
-        press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
-        press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
-        enter(&mut app);
-        assert_eq!(app.line, "");
-        let s = app.tabs[0].search.as_ref().unwrap();
-        // 5, 15, 25, ... 95, and 50 to 59: 19 lines.
-        assert_eq!(s.hits.len(), 19);
-        // The search starts at the first match at or after the top line, 90: the line
-        // "95", which is the last match. So Ctrl+N goes round to the first.
-        assert_eq!((s.at, s.hits[s.at]), (18, 94));
-        ctrl(&mut app, 'n');
-        assert_eq!(app.tabs[0].search.as_ref().unwrap().at, 0);
-        assert_eq!(app.output_top(), 0);
-        ctrl(&mut app, 'b');
-        assert_eq!(app.tabs[0].search.as_ref().unwrap().at, 18);
-        assert_eq!(app.output_top(), 89);
-
-        // `Esc` closes the prompt and keeps the old search.
-        ctrl(&mut app, 'f');
-        keys(&mut app, "x");
-        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
-        assert!(app.prompt.is_none());
-        assert_eq!(app.tabs[0].search.as_ref().unwrap().query, "5");
-
-        // With no run, there is nothing to search.
-        let mut app = App::default();
-        ctrl(&mut app, 'f');
-        assert!(app.prompt.is_none());
-    }
-
-    #[test]
     fn save() {
         let d = super::super::catalog::tests::scratch("save");
         let path = d.join("out.txt").to_string_lossy().into_owned();
@@ -1420,16 +1359,10 @@ mod tests {
         app.root = d.clone();
         // A stand in for antlion: `--build contracts/a` writes both files of `a`.
         app.program = d.join("fake").to_string_lossy().into_owned();
-        std::fs::write(
-            &app.program,
+        script(
+            Path::new(&app.program),
             "#!/bin/sh\nmkdir -p out/a && touch out/a/sdk.wasm out/a/solang.wasm\n",
-        )
-        .unwrap();
-        std::process::Command::new("chmod")
-            .arg("+x")
-            .arg(&app.program)
-            .status()
-            .unwrap();
+        );
 
         keys(&mut app, "--build contracts/a");
         ctrl(&mut app, 'r');
@@ -1477,18 +1410,14 @@ mod tests {
         assert_eq!(app.tab, 0);
         assert_eq!(app.tabs[0].run.lines.len(), 22);
 
-        // Each tab keeps its own scroll and search.
+        // Each tab keeps its own scroll.
         app.focus = Focus::Output;
         tab(&mut app, KeyCode::Home);
-        ctrl(&mut app, 'f');
-        keys(&mut app, "7");
-        enter(&mut app);
         tab(&mut app, KeyCode::PageDown);
         assert_eq!(app.tab, 1);
-        assert!(app.tabs[1].search.is_none());
         assert_eq!(app.output_top(), 13);
         tab(&mut app, KeyCode::PageUp);
-        assert_eq!(app.tabs[0].search.as_ref().unwrap().query, "7");
+        assert_eq!(app.output_top(), 0);
         for _ in 0..12 {
             tab(&mut app, KeyCode::PageDown);
         }
