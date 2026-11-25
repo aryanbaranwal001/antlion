@@ -41,8 +41,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     let lines: Vec<Line> = lines.iter().map(|l| Line::raw(l.as_str())).collect();
     f.render_widget(
         Paragraph::new(lines)
-            .block(frame(false).title(format!(" {title} ")))
-            .wrap(Wrap { trim: false }),
+            .block(frame(app.focus == Focus::Details).title(format!(" {title} ")))
+            .wrap(Wrap { trim: false })
+            .scroll((u16::try_from(app.details_top).unwrap_or(u16::MAX), 0)),
         details,
     );
 
@@ -70,8 +71,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         f.render_widget(Paragraph::new(run_state(&t.run) + &tabs), status);
     }
     f.render_widget(
-        Paragraph::new(Line::from(hints(app.focus)))
-            .style(Style::new().add_modifier(Modifier::DIM)),
+        Paragraph::new(Line::from(HINTS)).style(Style::new().add_modifier(Modifier::DIM)),
         keys,
     );
     if app
@@ -92,7 +92,8 @@ pub fn draw(f: &mut Frame, app: &App) {
 /// The command line: `antlion`, then what the user typed, and on the lower border why the
 /// CLI refuses it. It scrolls to the side to keep the cursor in view.
 fn command_line(f: &mut Frame, app: &App, area: Rect) {
-    let mut block = frame(app.focus == Focus::Line).title(" Command ");
+    // The command line gets the letters whatever has the focus, so it has a plain border.
+    let mut block = Block::bordered().title(" Command ");
     let args = app.args();
     if !args.is_empty()
         && let Some(e) = super::command::refusal(&args)
@@ -109,14 +110,15 @@ fn command_line(f: &mut Frame, app: &App, area: Rect) {
     let left16 = u16::try_from(left).unwrap_or(u16::MAX);
     f.render_widget(Paragraph::new(text).block(block).scroll((0, left16)), area);
     let open = app.prompt.is_some() || app.help.is_some() || app.info.is_some();
-    if app.focus == Focus::Line && !open {
+    if !open {
         f.set_cursor_position((inner.x + (at - left) as u16, inner.y));
     }
 }
 
 /// The words that can come at the cursor. When there is none, why.
 fn suggestions_pane(f: &mut Frame, app: &App, area: Rect) {
-    let block = frame(false).title(format!(" Suggestions ({}) ", app.suggestions.len()));
+    let block = frame(app.focus == Focus::Suggestions)
+        .title(format!(" Suggestions ({}) ", app.suggestions.len()));
     if app.suggestions.is_empty() {
         let before = app.before();
         let why = if before.trim_end().ends_with("--jobs") && before.ends_with(' ') {
@@ -138,11 +140,8 @@ fn suggestions_pane(f: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|s| ListItem::new(format!(" {}", s.text)))
         .collect();
-    let cursor = if app.focus == Focus::Line {
-        Style::new().add_modifier(Modifier::REVERSED)
-    } else {
-        Style::new()
-    };
+    // Enter puts in the suggestion under the cursor from any panel, so it always shows.
+    let cursor = Style::new().add_modifier(Modifier::REVERSED);
     let widget = List::new(rows).block(block).highlight_style(cursor);
     let mut state = ListState::default().with_selected(Some(app.pick));
     f.render_stateful_widget(widget, area, &mut state);
@@ -152,38 +151,36 @@ fn suggestions_pane(f: &mut Frame, app: &App, area: Rect) {
 const KEYS: &str = "\
 COMMAND LINE
 
-    type             the command, after antlion
-    Tab  Enter       put in the suggestion under the cursor
-    Up Down          move in the suggestions
+    type             the command, after antlion; letters always go here
+    Enter            put in the suggestion under the cursor
+    Ctrl+R           run the command
     Left Right       move the cursor; Home and End go to the start and the end
     Backspace Del    delete the character before the cursor, or at it
     Ctrl+W Ctrl+U    delete the word before the cursor, or all text before it
-    Esc              go to the output
+
+PANELS
+
+    Tab  Shift+Tab   next panel, panel before: suggestions, output, details
+    Up Down          move one item or line in the panel
+    PgUp PgDn        move a page in the panel
+    Ctrl+Home        go to the start of the panel
+    Ctrl+End         go to the end; in the output, follow new output
 
 OUTPUT
 
-    i                go back to the command line
-    j k              one line down, up
-    Ctrl+D Ctrl+U    half a page down, up
-    PgDn PgUp        a page down, up
-    gg G             top; end, which follows new output
-    h l  0           left, right, back to the start of the line
-    /                search; case counts only with a capital
-    n N              next match, match before
-    [ ]              tab before, next tab
-    s                save the output to a file
-    r                run the command again
-    H                history of runs; Enter puts one in the command line
-    c                cancel the run
-    y                copy the command
-    ?                this help
-    q                quit; during a run, press it twice
+    Shift+Left       scroll to the left; Shift+Right scrolls to the right
+    Ctrl+F           search; case counts only with a capital
+    Ctrl+N Ctrl+B    next match, match before
+    Ctrl+PgUp        tab before; Ctrl+PgDn goes to the next tab
+    Ctrl+S           save the output to a file
+    Ctrl+Y           copy the command
 
 EVERYWHERE
 
-    Ctrl+R           run the command
-    Ctrl+P           command palette
-    Ctrl+C           quit at once, and stop the run
+    Ctrl+P           command palette, with the history of runs and more
+    F1               this help
+    Ctrl+C           cancel the run; with no run, quit
+    Ctrl+Q           quit at once, and stop the run
 
 PALETTE AND PROMPTS
 
@@ -350,15 +347,8 @@ fn run_state(r: &super::runner::Run) -> String {
     )
 }
 
-/// The keys of the part that has the focus.
-fn hints(focus: Focus) -> &'static str {
-    match focus {
-        Focus::Line => " ↑↓ pick  Enter/Tab add  ^R run  Esc output  ^P palette  ^C quit",
-        Focus::Output => {
-            " j/k gg/G scroll  / n N search  [] tab  r run  H history  i type  ? help  q quit"
-        }
-    }
-}
+/// The most used keys, on the last row.
+const HINTS: &str = " Enter add  ^R run  Tab panel  ↑↓ move  ^F find  ^P palette  F1 help  ^C quit";
 
 /// A pane's border, bright when it has the focus.
 fn frame(focused: bool) -> Block<'static> {
@@ -411,11 +401,6 @@ pub(super) mod tests {
         assert!(details > 3);
         assert!(s[details + 1].contains("diff both builds"));
         assert!(s[23].contains("^C quit"));
-        let mut app = App::default();
-        app.key(ratatui::crossterm::event::KeyEvent::from(
-            ratatui::crossterm::event::KeyCode::Esc,
-        ));
-        assert!(screen(&app, 80, 24)[23].contains("q quit"));
     }
 
     #[test]
@@ -474,8 +459,10 @@ pub(super) mod tests {
 
     #[test]
     fn help_overlay() {
-        let mut app = App::default();
-        app.help = Some(0);
+        let mut app = App {
+            help: Some(0),
+            ..App::default()
+        };
         let s = screen(&app, 100, 60);
         assert!(s[1].contains(" Help "));
         assert!(s[2].contains("COMMAND LINE"));

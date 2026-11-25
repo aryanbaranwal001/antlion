@@ -9,14 +9,25 @@ use super::complete::{self, Suggestion};
 use super::runner::Run;
 use super::search::Search;
 
-/// Where the keys go.
+/// The panel that `Up`, `Down`, `PgUp`, `PgDn`, `Ctrl+Home` and `Ctrl+End` move in. The
+/// letters always go into the command line, whatever has the focus.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum Focus {
-    /// The command line: a key types its character.
     #[default]
-    Line,
-    /// The output pane: a key scrolls or searches it.
+    Suggestions,
     Output,
+    Details,
+}
+
+impl Focus {
+    /// Every panel, in `Tab` order.
+    const ALL: [Focus; 3] = [Focus::Suggestions, Focus::Output, Focus::Details];
+
+    /// The panel `step` places after this one in `Tab` order, going round.
+    fn next(self, step: isize) -> Focus {
+        let i = Focus::ALL.iter().position(|f| *f == self).unwrap_or(0) as isize;
+        Focus::ALL[(i + step).rem_euclid(Focus::ALL.len() as isize) as usize]
+    }
 }
 
 /// The most run tabs kept. A new run past this drops the oldest.
@@ -148,7 +159,7 @@ pub struct Prompt {
 }
 
 pub struct App {
-    /// Where the keys go.
+    /// The panel the moving keys act on.
     pub focus: Focus,
     /// The loop stops at the end of this pass.
     pub quit: bool,
@@ -165,6 +176,8 @@ pub struct App {
     pub pick: usize,
     /// The title and the lines of the details pane.
     pub details: (String, Vec<String>),
+    /// The first line the details pane shows.
+    pub details_top: usize,
     /// The folder the pairs are read from, to read them again after a build.
     pub root: std::path::PathBuf,
     /// The program a run starts: the antlion binary itself.
@@ -194,10 +207,6 @@ pub struct App {
     pub presets: Vec<(String, Vec<String>)>,
     /// Text to put in the clipboard, which the loop sends to the terminal after the draw.
     pub copy: Option<String>,
-    /// `q` was pressed while a run was active, and needs a second `q`.
-    quit_asked: bool,
-    /// The first `g` of `gg` was pressed.
-    g: bool,
 }
 
 impl Default for App {
@@ -212,6 +221,7 @@ impl Default for App {
             suggestions: Vec::new(),
             pick: 0,
             details: (String::new(), Vec::new()),
+            details_top: 0,
             root: std::path::PathBuf::from("."),
             program: "antlion".to_string(),
             tabs: Vec::new(),
@@ -226,8 +236,6 @@ impl Default for App {
             history: Vec::new(),
             config_dir: None,
             presets: Vec::new(),
-            quit_asked: false,
-            g: false,
         };
         app.refresh();
         app
@@ -272,12 +280,17 @@ impl App {
     fn refresh(&mut self) {
         self.suggestions = complete::suggest(self.before(), &self.pairs);
         self.pick = self.pick.min(self.suggestions.len().saturating_sub(1));
-        self.details = complete::details(
+        let details = complete::details(
             self.suggestions.get(self.pick),
             self.before(),
             &self.root,
             &self.pairs,
         );
+        // New details start at their top.
+        if details != self.details {
+            self.details_top = 0;
+        }
+        self.details = details;
     }
 
     /// Take the new output of each run, and search it. When a build ends, read the build
@@ -346,7 +359,6 @@ impl App {
     fn load(&mut self, args: &[String]) {
         self.line = format!("{} ", args.join(" "));
         self.cursor = self.line.len();
-        self.focus = Focus::Line;
         self.pick = 0;
         self.refresh();
         self.status = Some("loaded: press Ctrl+R to run it".to_string());
@@ -469,12 +481,12 @@ impl App {
             act,
         };
         vec![
-            e("help: every key, and the inputs", "?", Act::Help),
+            e("help: every key, and the inputs", "F1", Act::Help),
             e("run the command", "Ctrl+R", Act::Run),
-            e("copy the command", "y", Act::Copy),
-            e("cancel the run", "c", Act::Cancel),
-            e("save the output to a file", "s", Act::Save),
-            e("history of runs", "H", Act::History),
+            e("copy the command", "Ctrl+Y", Act::Copy),
+            e("cancel the run", "Ctrl+C", Act::Cancel),
+            e("save the output to a file", "Ctrl+S", Act::Save),
+            e("history of runs", "", Act::History),
             e(
                 "doctor: check the tools, out/ and the builds",
                 "",
@@ -503,7 +515,7 @@ impl App {
             ),
             e("save the command as a preset", "", Act::SavePreset),
             e("load a preset", "", Act::Presets),
-            e("quit", "q", Act::Quit),
+            e("quit", "Ctrl+Q", Act::Quit),
         ]
     }
 
@@ -617,9 +629,6 @@ impl App {
                     });
                 }
             }
-            Act::Quit if self.running() => {
-                self.status = Some("a run is active: cancel it first, then quit".to_string())
-            }
             Act::Quit => self.quit = true,
             Act::History => self.ask(Ask::History),
             Act::Task("save") => {
@@ -729,45 +738,39 @@ impl App {
         self.current().map_or(0, |t| t.top_line(self.view_height))
     }
 
-    /// The keys of the output pane. True when the key was one of them.
-    fn output_key(&mut self, k: KeyEvent, g: bool) -> bool {
-        let h = self.view_height;
-        let half = (h / 2).max(1) as isize;
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        let n = self.tabs.len();
-        match k.code {
-            KeyCode::Char('[') => self.tab = self.tab.saturating_sub(1),
-            KeyCode::Char(']') => self.tab = (self.tab + 1).min(n.saturating_sub(1)),
-            _ => {}
-        }
-        let Some(t) = self.tabs.get_mut(self.tab) else {
-            return matches!(k.code, KeyCode::Char('[' | ']'));
+    /// Move in the panel that has the focus: a line or an item with `Up` and `Down`, a page
+    /// with `PgUp` and `PgDn`, the start and the end with `Ctrl+Home` and `Ctrl+End`.
+    fn move_in(&mut self, k: KeyCode) {
+        let h = self.view_height.max(1) as isize;
+        let step = match k {
+            KeyCode::Up => -1,
+            KeyCode::Down => 1,
+            KeyCode::PageUp => -h,
+            KeyCode::PageDown => h,
+            KeyCode::Home => isize::MIN / 2,
+            _ => isize::MAX / 2,
         };
-        match k.code {
-            KeyCode::Char('[' | ']') => {}
-            KeyCode::Char('j') | KeyCode::Down => t.scroll(1, h),
-            KeyCode::Char('k') | KeyCode::Up => t.scroll(-1, h),
-            KeyCode::Char('d') if ctrl => t.scroll(half, h),
-            KeyCode::Char('u') if ctrl => t.scroll(-half, h),
-            KeyCode::PageDown => t.scroll(half * 2, h),
-            KeyCode::PageUp => t.scroll(-half * 2, h),
-            KeyCode::Char('g') if g => t.scroll(isize::MIN / 2, h),
-            KeyCode::Char('G') => t.top = None,
-            KeyCode::Char('l') | KeyCode::Right => t.left += 8,
-            KeyCode::Char('h') | KeyCode::Left => t.left = t.left.saturating_sub(8),
-            KeyCode::Char('0') => t.left = 0,
-            KeyCode::Char('/') => self.ask(Ask::Search),
-            KeyCode::Char('s') => {
-                self.prompt = Some(Prompt {
-                    ask: Ask::Save,
-                    text: command::file_name(&t.run.args),
-                })
+        match self.focus {
+            Focus::Suggestions => {
+                let last = self.suggestions.len().saturating_sub(1) as isize;
+                self.pick = (self.pick as isize + step).clamp(0, last) as usize;
+                self.refresh();
             }
-            KeyCode::Char('n') => self.next_match(1),
-            KeyCode::Char('N') => self.next_match(-1),
-            _ => return false,
+            Focus::Output => {
+                let Some(t) = self.tabs.get_mut(self.tab) else {
+                    return;
+                };
+                if k == KeyCode::End {
+                    t.top = None;
+                } else {
+                    t.scroll(step, h as usize);
+                }
+            }
+            Focus::Details => {
+                let last = self.details.1.len().saturating_sub(1) as isize;
+                self.details_top = (self.details_top as isize + step).clamp(0, last) as usize;
+            }
         }
-        true
     }
 
     /// The char before the cursor starts at this byte; 0 at the start of the line.
@@ -802,7 +805,7 @@ impl App {
         self.cursor += 1;
     }
 
-    /// The keys of the command line.
+    /// The keys that edit the command line.
     fn line_key(&mut self, k: KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let alt = k.modifiers.contains(KeyModifiers::ALT);
@@ -835,10 +838,7 @@ impl App {
             KeyCode::Right => self.cursor = self.char_after(),
             KeyCode::Home => self.cursor = 0,
             KeyCode::End => self.cursor = self.line.len(),
-            KeyCode::Up => self.pick = self.pick.saturating_sub(1),
-            KeyCode::Down => self.pick += 1,
-            KeyCode::Tab | KeyCode::Enter => self.accept(),
-            KeyCode::Esc => self.focus = Focus::Output,
+            KeyCode::Enter => self.accept(),
             _ => {}
         }
         // A new word gets new suggestions, so the cursor goes back to the best one.
@@ -848,55 +848,37 @@ impl App {
         self.refresh();
     }
 
-    /// The keys while the output pane has the focus.
-    fn output_focus_key(&mut self, k: KeyEvent) {
-        let g = std::mem::take(&mut self.g);
-        let quit_asked = std::mem::take(&mut self.quit_asked);
-        if k.code == KeyCode::Char('g') && !g {
-            self.g = true;
-            return;
-        }
-        if self.output_key(k, g) {
-            return;
-        }
-        match k.code {
-            KeyCode::Char('q') if quit_asked || !self.running() => self.quit = true,
-            KeyCode::Char('q') => {
-                self.quit_asked = true;
-                self.status =
-                    Some("a run is active: press q again to stop it and quit".to_string());
-            }
-            KeyCode::Char('c') => self.act(Act::Cancel),
-            KeyCode::Char('?') => self.help = Some(0),
-            KeyCode::Char('y') => self.act(Act::Copy),
-            KeyCode::Char('r') => self.start(),
-            KeyCode::Char('H') => self.act(Act::History),
-            KeyCode::Char('i') => self.focus = Focus::Line,
-            _ => {}
-        }
-    }
-
+    /// Every key. The letters always go into the command line; the other keys have no
+    /// text, so they never need a mode.
     pub fn key(&mut self, k: KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        // Ctrl+C works everywhere, even while a box or a prompt is open.
-        if ctrl && k.code == KeyCode::Char('c') {
-            self.quit = true;
-            return;
+        let shift = k.modifiers.contains(KeyModifiers::SHIFT);
+        // Ctrl+C and Ctrl+Q work everywhere, even while a box or a prompt is open.
+        match k.code {
+            KeyCode::Char('c') if ctrl && self.running() => {
+                self.act(Act::Cancel);
+                return;
+            }
+            KeyCode::Char('c' | 'q') if ctrl => {
+                self.quit = true;
+                return;
+            }
+            _ => {}
         }
         if let Some((_, _, top)) = &mut self.info {
             match k.code {
-                KeyCode::Char('j') | KeyCode::Down => *top += 1,
-                KeyCode::Char('k') | KeyCode::Up => *top = top.saturating_sub(1),
-                KeyCode::Esc | KeyCode::Char('q') => self.info = None,
+                KeyCode::Down => *top += 1,
+                KeyCode::Up => *top = top.saturating_sub(1),
+                KeyCode::Esc => self.info = None,
                 _ => {}
             }
             return;
         }
         if let Some(top) = &mut self.help {
             match k.code {
-                KeyCode::Char('j') | KeyCode::Down => *top += 1,
-                KeyCode::Char('k') | KeyCode::Up => *top = top.saturating_sub(1),
-                KeyCode::Esc | KeyCode::Char('?' | 'q') => self.help = None,
+                KeyCode::Down => *top += 1,
+                KeyCode::Up => *top = top.saturating_sub(1),
+                KeyCode::Esc | KeyCode::F(1) => self.help = None,
                 _ => {}
             }
             return;
@@ -905,13 +887,34 @@ impl App {
             self.prompt_key(k);
             return;
         }
+        let n = self.tabs.len();
         match k.code {
             KeyCode::Char('p') if ctrl => self.ask(Ask::Palette),
             KeyCode::Char('r') if ctrl => self.start(),
-            _ => match self.focus {
-                Focus::Line => self.line_key(k),
-                Focus::Output => self.output_focus_key(k),
-            },
+            KeyCode::Char('f') if ctrl && self.current().is_some() => self.ask(Ask::Search),
+            KeyCode::Char('n') if ctrl => self.next_match(1),
+            KeyCode::Char('b') if ctrl => self.next_match(-1),
+            KeyCode::Char('s') if ctrl => self.act(Act::Save),
+            KeyCode::Char('y') if ctrl => self.act(Act::Copy),
+            KeyCode::F(1) => self.help = Some(0),
+            KeyCode::Tab => self.focus = self.focus.next(1),
+            KeyCode::BackTab => self.focus = self.focus.next(-1),
+            KeyCode::PageUp if ctrl => self.tab = self.tab.saturating_sub(1),
+            KeyCode::PageDown if ctrl => self.tab = (self.tab + 1).min(n.saturating_sub(1)),
+            KeyCode::Left | KeyCode::Right if shift => {
+                if let Some(t) = self.current_mut() {
+                    t.left = if k.code == KeyCode::Left {
+                        t.left.saturating_sub(8)
+                    } else {
+                        t.left + 8
+                    };
+                }
+            }
+            KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
+                self.move_in(k.code)
+            }
+            KeyCode::Home | KeyCode::End if ctrl => self.move_in(k.code),
+            _ => self.line_key(k),
         }
     }
 }
@@ -984,20 +987,20 @@ mod tests {
         let mut app = App::new(vec![pair("flow"), pair("numeric")]);
         assert_eq!(texts(&app)[0], "--compare");
         keys(&mut app, "--c");
-        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        enter(&mut app);
         assert_eq!(app.line, "--compare ");
         assert_eq!(texts(&app), ["flow", "numeric"]);
-        // Down picks the next suggestion, and Enter puts it in, as Tab does.
+        // Down picks the next suggestion, and Enter puts it in.
         press(&mut app, KeyCode::Down, KeyModifiers::NONE);
         enter(&mut app);
         assert_eq!(app.line, "--compare numeric ");
         assert_eq!(texts(&app), ["flow", "--report"]);
         keys(&mut app, "--r");
-        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        enter(&mut app);
         // The word typed filters the reports, the best match first.
         keys(&mut app, "co");
         assert_eq!(texts(&app)[0], "cost");
-        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        enter(&mut app);
         assert_eq!(app.line, "--compare numeric --report cost ");
         // The cursor never goes past the last suggestion.
         for _ in 0..50 {
@@ -1016,7 +1019,7 @@ mod tests {
         for _ in 0.." --report size".len() {
             press(&mut app, KeyCode::Left, KeyModifiers::NONE);
         }
-        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        enter(&mut app);
         // The space that was there is kept, and no second one is added.
         assert_eq!(app.line, "--compare flow --report size");
         assert_eq!(&app.line[app.cursor..], "--report size");
@@ -1068,27 +1071,25 @@ mod tests {
 
     #[test]
     fn help() {
-        let mut app = App {
-            focus: Focus::Output,
-            ..App::default()
-        };
-        keys(&mut app, "?");
+        let mut app = App::default();
+        press(&mut app, KeyCode::F(1), KeyModifiers::NONE);
         assert_eq!(app.help, Some(0));
         // While help is open, keys scroll it and do nothing else.
-        keys(&mut app, "jjkir");
+        press(&mut app, KeyCode::Down, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Down, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Up, KeyModifiers::NONE);
+        keys(&mut app, "abc");
         assert_eq!(app.help, Some(1));
-        assert_eq!(app.focus, Focus::Output);
-        keys(&mut app, "q");
+        assert_eq!(app.line, "");
+        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(app.help, None);
-        assert!(!app.quit);
     }
 
     #[test]
     fn copy() {
         let mut app = App::default();
         keys(&mut app, "--compare flow   --report size");
-        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
-        keys(&mut app, "y");
+        ctrl(&mut app, 'y');
         assert_eq!(
             app.copy.as_deref(),
             Some("antlion --compare flow --report size")
@@ -1119,7 +1120,7 @@ mod tests {
         assert_eq!(app.history[0].exit, Some(0));
         assert_eq!(super::super::store::history(&d).len(), 1);
 
-        // Loading a run puts it in the command line, from the output pane too.
+        // Loading a run puts it in the command line.
         app.history.push(super::super::store::Record::new(
             ["--compare", "numeric", "--report", "cost", "--json"]
                 .map(String::from)
@@ -1127,8 +1128,9 @@ mod tests {
             Some(0),
             1.0,
         ));
-        app.focus = Focus::Output;
-        keys(&mut app, "H");
+        ctrl(&mut app, 'p');
+        keys(&mut app, "history of runs");
+        enter(&mut app);
         assert!(
             app.palette_hits()[0]
                 .label
@@ -1137,7 +1139,6 @@ mod tests {
         enter(&mut app);
         assert_eq!(app.line, "--compare numeric --report cost --json ");
         assert_eq!(app.cursor, app.line.len());
-        assert_eq!(app.focus, Focus::Line);
         assert_eq!(texts(&app), ["--detail", "--dump", "--jobs"]);
     }
 
@@ -1237,38 +1238,36 @@ mod tests {
     }
 
     #[test]
-    fn quit_during_a_run() {
-        let sleeping = || App {
-            focus: Focus::Output,
+    fn ctrl_c_cancels_then_quits() {
+        let mut app = App {
             tabs: vec![Tab::new(
                 Run::start("sleep", vec!["30".into()], Path::new(".")).unwrap(),
             )],
             ..App::default()
         };
-        let mut app = sleeping();
-        keys(&mut app, "q");
-        assert!(!app.quit);
-        assert!(
-            app.status
-                .as_deref()
-                .is_some_and(|s| s.contains("press q again"))
-        );
-        keys(&mut app, "q");
+        // During a run, Ctrl+C cancels it and does not quit.
+        ctrl(&mut app, 'c');
+        assert!(!app.running() && !app.quit);
+        ctrl(&mut app, 'c');
         assert!(app.quit);
 
-        // Any other key in between asks again.
-        let mut app = sleeping();
-        keys(&mut app, "qjq");
-        assert!(!app.quit);
-
-        // `c` cancels, and then one `q` quits.
-        keys(&mut app, "c");
-        assert!(!app.running());
+        // Ctrl+Q quits at once, and `q` is only text.
+        let mut app = App::default();
         keys(&mut app, "q");
+        assert!(!app.quit);
+        assert_eq!(app.line, "q");
+        ctrl(&mut app, 'q');
+        assert!(app.quit);
+
+        // Both work while a prompt is open.
+        let mut app = App::default();
+        ctrl(&mut app, 'p');
+        ctrl(&mut app, 'c');
         assert!(app.quit);
     }
 
-    /// An app whose run printed `n` lines, with an output pane `h` rows high.
+    /// An app whose run printed `n` lines, with an output pane `h` rows high, and the
+    /// focus on the output.
     fn with_output(n: usize, h: usize) -> App {
         let script = format!("seq 1 {n}");
         let mut r = Run::start("sh", vec!["-c".into(), script], Path::new(".")).unwrap();
@@ -1281,65 +1280,100 @@ mod tests {
         }
     }
 
+    fn key(app: &mut App, code: KeyCode) {
+        press(app, code, KeyModifiers::NONE);
+    }
+
     #[test]
     fn scroll() {
         let mut app = with_output(100, 10);
         assert_eq!(app.output_top(), 90);
-        keys(&mut app, "k");
+        key(&mut app, KeyCode::Up);
         assert_eq!((app.output_top(), app.tabs[0].top), (89, Some(89)));
-        keys(&mut app, "gg");
+        press(&mut app, KeyCode::Home, KeyModifiers::CONTROL);
         assert_eq!(app.output_top(), 0);
-        keys(&mut app, "k");
+        key(&mut app, KeyCode::Up);
         assert_eq!(app.output_top(), 0);
-        ctrl(&mut app, 'd');
-        assert_eq!(app.output_top(), 5);
-        ctrl(&mut app, 'u');
+        key(&mut app, KeyCode::PageDown);
+        assert_eq!(app.output_top(), 10);
+        key(&mut app, KeyCode::PageUp);
         assert_eq!(app.output_top(), 0);
-        keys(&mut app, "G");
+        press(&mut app, KeyCode::End, KeyModifiers::CONTROL);
         assert_eq!(app.tabs[0].top, None);
         // Down at the end stays at the end, and follows.
-        keys(&mut app, "j");
+        key(&mut app, KeyCode::Down);
         assert_eq!((app.output_top(), app.tabs[0].top), (90, None));
-        keys(&mut app, "lll h");
+        for _ in 0..3 {
+            press(&mut app, KeyCode::Right, KeyModifiers::SHIFT);
+        }
+        press(&mut app, KeyCode::Left, KeyModifiers::SHIFT);
         assert_eq!(app.tabs[0].left, 16);
-        keys(&mut app, "0");
-        assert_eq!(app.tabs[0].left, 0);
+        // Plain Home and End move the cursor of the command line, not the output.
+        keys(&mut app, "ab");
+        key(&mut app, KeyCode::Home);
+        assert_eq!((app.cursor, app.tabs[0].top), (0, None));
 
         // Output shorter than the pane never scrolls.
         let mut app = with_output(3, 10);
-        keys(&mut app, "kggj");
+        key(&mut app, KeyCode::Up);
+        key(&mut app, KeyCode::PageUp);
         assert_eq!(app.output_top(), 0);
+    }
+
+    #[test]
+    fn details_scroll() {
+        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
+        keys(&mut app, "--compare ");
+        assert_eq!(app.details.0, "pair flow");
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.focus, Focus::Details);
+        key(&mut app, KeyCode::Down);
+        key(&mut app, KeyCode::Down);
+        assert_eq!(app.details_top, 2);
+        // It stops at the last line.
+        press(&mut app, KeyCode::End, KeyModifiers::CONTROL);
+        assert_eq!(app.details_top, app.details.1.len() - 1);
+        // New details start at their top.
+        keys(&mut app, "num");
+        assert_eq!(app.details_top, 0);
     }
 
     #[test]
     fn search() {
         let mut app = with_output(100, 10);
-        keys(&mut app, "/");
+        ctrl(&mut app, 'f');
         assert!(app.prompt.is_some());
-        // While the prompt is open, `q` and `j` are text, not keys.
+        // While the prompt is open, letters are its text, not the command line.
         keys(&mut app, "5qj");
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
-        assert!(!app.quit);
         enter(&mut app);
+        assert_eq!(app.line, "");
         let s = app.tabs[0].search.as_ref().unwrap();
         // 5, 15, 25, ... 95, and 50 to 59: 19 lines.
         assert_eq!(s.hits.len(), 19);
         // The search starts at the first match at or after the top line, 90: the line
-        // "95", which is the last match. So `n` goes round to the first.
+        // "95", which is the last match. So Ctrl+N goes round to the first.
         assert_eq!((s.at, s.hits[s.at]), (18, 94));
-        keys(&mut app, "n");
+        ctrl(&mut app, 'n');
         assert_eq!(app.tabs[0].search.as_ref().unwrap().at, 0);
         assert_eq!(app.output_top(), 0);
-        keys(&mut app, "N");
+        ctrl(&mut app, 'b');
         assert_eq!(app.tabs[0].search.as_ref().unwrap().at, 18);
         assert_eq!(app.output_top(), 89);
 
         // `Esc` closes the prompt and keeps the old search.
-        keys(&mut app, "/x");
+        ctrl(&mut app, 'f');
+        keys(&mut app, "x");
         press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
         assert!(app.prompt.is_none());
         assert_eq!(app.tabs[0].search.as_ref().unwrap().query, "5");
+
+        // With no run, there is nothing to search.
+        let mut app = App::default();
+        ctrl(&mut app, 'f');
+        assert!(app.prompt.is_none());
     }
 
     #[test]
@@ -1347,7 +1381,7 @@ mod tests {
         let d = super::super::catalog::tests::scratch("save");
         let path = d.join("out.txt").to_string_lossy().into_owned();
         let mut app = with_output(3, 10);
-        keys(&mut app, "s");
+        ctrl(&mut app, 's');
         assert_eq!(app.prompt.as_ref().unwrap().text, "antlion.txt");
         // Clear the default name and type the path.
         for _ in 0.."antlion.txt".len() {
@@ -1415,12 +1449,13 @@ mod tests {
     #[test]
     fn tabs() {
         let mut app = App {
-            focus: Focus::Output,
             view_height: 10,
             ..App::default()
         };
-        // `[` and `]` with no tab do nothing.
-        keys(&mut app, "[]");
+        let tab = |app: &mut App, code| press(app, code, KeyModifiers::CONTROL);
+        // With no tab, the keys do nothing.
+        tab(&mut app, KeyCode::PageUp);
+        tab(&mut app, KeyCode::PageDown);
         assert_eq!(app.tab, 0);
 
         for i in 0..12 {
@@ -1436,53 +1471,52 @@ mod tests {
         assert_eq!(app.tabs.len(), MAX_TABS);
         assert_eq!(app.tab, 9);
         // The oldest tab now is the third run, with 22 lines.
-        keys(&mut app, "[[[[[[[[[[[[");
+        for _ in 0..12 {
+            tab(&mut app, KeyCode::PageUp);
+        }
         assert_eq!(app.tab, 0);
         assert_eq!(app.tabs[0].run.lines.len(), 22);
 
         // Each tab keeps its own scroll and search.
-        keys(&mut app, "gg/7");
+        app.focus = Focus::Output;
+        tab(&mut app, KeyCode::Home);
+        ctrl(&mut app, 'f');
+        keys(&mut app, "7");
         enter(&mut app);
-        keys(&mut app, "]");
+        tab(&mut app, KeyCode::PageDown);
         assert_eq!(app.tab, 1);
         assert!(app.tabs[1].search.is_none());
         assert_eq!(app.output_top(), 13);
-        keys(&mut app, "[");
+        tab(&mut app, KeyCode::PageUp);
         assert_eq!(app.tabs[0].search.as_ref().unwrap().query, "7");
-        keys(&mut app, "]]]]]]]]]]]]");
+        for _ in 0..12 {
+            tab(&mut app, KeyCode::PageDown);
+        }
         assert_eq!(app.tab, 9);
     }
 
     #[test]
     fn focus() {
-        let mut app = App::default();
-        assert_eq!(app.focus, Focus::Line);
-        press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+        let mut app = App::new(vec![pair("flow"), pair("numeric")]);
+        assert_eq!(app.focus, Focus::Suggestions);
+        // Tab goes round the panels, and Shift+Tab goes back.
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.focus, Focus::Output);
-        // In the output pane, `i` goes back to the command line, and types nothing.
-        keys(&mut app, "i");
-        assert_eq!(app.focus, Focus::Line);
-        assert_eq!(app.line, "");
-    }
-
-    #[test]
-    fn q_and_ctrl_c_quit() {
-        let mut app = App {
-            focus: Focus::Output,
-            ..App::default()
-        };
-        press(&mut app, KeyCode::Char('x'), KeyModifiers::NONE);
-        assert!(!app.quit);
-        press(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
-        assert!(app.quit);
-
-        // Ctrl+C quits from the command line, and from an open prompt.
-        let mut app = App::default();
-        ctrl(&mut app, 'c');
-        assert!(app.quit);
-        let mut app = App::default();
-        ctrl(&mut app, 'p');
-        ctrl(&mut app, 'c');
-        assert!(app.quit);
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.focus, Focus::Details);
+        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.focus, Focus::Suggestions);
+        press(&mut app, KeyCode::BackTab, KeyModifiers::SHIFT);
+        assert_eq!(app.focus, Focus::Details);
+        // Letters go into the command line, whatever has the focus.
+        keys(&mut app, "--compare ");
+        assert_eq!(app.line, "--compare ");
+        // Down moves in the suggestions only when they have the focus.
+        key(&mut app, KeyCode::Down);
+        assert_eq!(app.pick, 0);
+        app.focus = Focus::Suggestions;
+        key(&mut app, KeyCode::Down);
+        assert_eq!(app.pick, 1);
+        assert_eq!(app.details.0, "pair numeric");
     }
 }
