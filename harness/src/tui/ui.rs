@@ -124,7 +124,7 @@ fn suggestions_pane(f: &mut Frame, app: &App, area: Rect) {
         } else if !complete::word(before).is_empty() {
             "nothing matches the word typed"
         } else {
-            "nothing more to add: Enter runs the command"
+            "nothing more to add: Ctrl+R runs the command"
         };
         let text = Paragraph::new(format!(" {why}"))
             .style(Style::new().add_modifier(Modifier::DIM))
@@ -153,9 +153,8 @@ const KEYS: &str = "\
 COMMAND LINE
 
     type             the command, after antlion
-    Tab              put in the suggestion under the cursor
+    Tab  Enter       put in the suggestion under the cursor
     Up Down          move in the suggestions
-    Enter            run the command
     Left Right       move the cursor; Home and End go to the start and the end
     Backspace Del    delete the character before the cursor, or at it
     Ctrl+W Ctrl+U    delete the word before the cursor, or all text before it
@@ -174,6 +173,7 @@ OUTPUT
     [ ]              tab before, next tab
     s                save the output to a file
     r                run the command again
+    H                history of runs; Enter puts one in the command line
     c                cancel the run
     y                copy the command
     ?                this help
@@ -181,8 +181,8 @@ OUTPUT
 
 EVERYWHERE
 
+    Ctrl+R           run the command
     Ctrl+P           command palette
-    Ctrl+R           history of runs; Enter puts one in the command line
     Ctrl+C           quit at once, and stop the run
 
 PALETTE AND PROMPTS
@@ -353,11 +353,9 @@ fn run_state(r: &super::runner::Run) -> String {
 /// The keys of the part that has the focus.
 fn hints(focus: Focus) -> &'static str {
     match focus {
-        Focus::Line => {
-            " Tab complete  ↑↓ pick  Enter run  Esc output  ^P palette  ^R history  ^C quit"
-        }
+        Focus::Line => " ↑↓ pick  Enter/Tab add  ^R run  Esc output  ^P palette  ^C quit",
         Focus::Output => {
-            " j/k ^D/^U gg/G scroll  / n N search  [ ] tab  s save  i type  ? help  q quit"
+            " j/k gg/G scroll  / n N search  [] tab  r run  H history  i type  ? help  q quit"
         }
     }
 }

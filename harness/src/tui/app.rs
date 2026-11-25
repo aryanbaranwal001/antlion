@@ -349,7 +349,7 @@ impl App {
         self.focus = Focus::Line;
         self.pick = 0;
         self.refresh();
-        self.status = Some("loaded: press Enter to run it".to_string());
+        self.status = Some("loaded: press Ctrl+R to run it".to_string());
     }
 
     /// Read the pairs again, so the suggestions show a build made since.
@@ -470,11 +470,11 @@ impl App {
         };
         vec![
             e("help: every key, and the inputs", "?", Act::Help),
-            e("run the command", "Enter", Act::Run),
+            e("run the command", "Ctrl+R", Act::Run),
             e("copy the command", "y", Act::Copy),
             e("cancel the run", "c", Act::Cancel),
             e("save the output to a file", "s", Act::Save),
-            e("history of runs", "Ctrl+R", Act::History),
+            e("history of runs", "H", Act::History),
             e(
                 "doctor: check the tools, out/ and the builds",
                 "",
@@ -837,8 +837,7 @@ impl App {
             KeyCode::End => self.cursor = self.line.len(),
             KeyCode::Up => self.pick = self.pick.saturating_sub(1),
             KeyCode::Down => self.pick += 1,
-            KeyCode::Tab => self.accept(),
-            KeyCode::Enter => self.start(),
+            KeyCode::Tab | KeyCode::Enter => self.accept(),
             KeyCode::Esc => self.focus = Focus::Output,
             _ => {}
         }
@@ -871,6 +870,7 @@ impl App {
             KeyCode::Char('?') => self.help = Some(0),
             KeyCode::Char('y') => self.act(Act::Copy),
             KeyCode::Char('r') => self.start(),
+            KeyCode::Char('H') => self.act(Act::History),
             KeyCode::Char('i') => self.focus = Focus::Line,
             _ => {}
         }
@@ -907,7 +907,7 @@ impl App {
         }
         match k.code {
             KeyCode::Char('p') if ctrl => self.ask(Ask::Palette),
-            KeyCode::Char('r') if ctrl => self.act(Act::History),
+            KeyCode::Char('r') if ctrl => self.start(),
             _ => match self.focus {
                 Focus::Line => self.line_key(k),
                 Focus::Output => self.output_focus_key(k),
@@ -987,9 +987,9 @@ mod tests {
         press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
         assert_eq!(app.line, "--compare ");
         assert_eq!(texts(&app), ["flow", "numeric"]);
-        // Down picks the next suggestion, and Tab puts it in.
+        // Down picks the next suggestion, and Enter puts it in, as Tab does.
         press(&mut app, KeyCode::Down, KeyModifiers::NONE);
-        press(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        enter(&mut app);
         assert_eq!(app.line, "--compare numeric ");
         assert_eq!(texts(&app), ["flow", "--report"]);
         keys(&mut app, "--r");
@@ -1026,7 +1026,7 @@ mod tests {
     fn run_only_what_the_cli_takes() {
         let mut app = App::default();
         keys(&mut app, "--compare flow");
-        enter(&mut app);
+        ctrl(&mut app, 'r');
         assert!(app.tabs.is_empty());
         assert!(
             app.status
@@ -1128,7 +1128,7 @@ mod tests {
             1.0,
         ));
         app.focus = Focus::Output;
-        ctrl(&mut app, 'r');
+        keys(&mut app, "H");
         assert!(
             app.palette_hits()[0]
                 .label
@@ -1398,7 +1398,7 @@ mod tests {
             .unwrap();
 
         keys(&mut app, "--build contracts/a");
-        enter(&mut app);
+        ctrl(&mut app, 'r');
         assert_eq!(app.tabs[0].run.args, ["--build", "contracts/a"]);
         assert_eq!(app.tabs[0].kind, Kind::Build);
         let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
