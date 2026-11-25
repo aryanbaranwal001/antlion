@@ -113,7 +113,7 @@ do in the UI you can also do in a shell or a script. `y` copies the command.
 │                                       ││each function, ...       │
 └───────────────────────────────────────┘└─────────────────────────┘
  done  0.9 s  150 lines  tab 1 of 1
- ↑↓ pick  Enter/Tab add  ^R run  Esc output  ^P palette  ^C quit
+ Enter add  ^R run  Tab panel  ↑↓ move  ^F find  ^P palette  F1 help  ^C quit
 ```
 
 **The command line.** It starts with `antlion`, which you cannot change, and you type the
@@ -134,35 +134,38 @@ cursor: what a command or a flag does, what a report measures and which inputs i
 each function with, or the build state of a pair and the signature of each function in
 both builds. With no suggestion, it shows the help for the last flag you typed.
 
-**The output.** Each run has its own tab. `Esc` moves the keys to the output, and `i`
-moves them back to the command line.
+**The output.** Each run has its own tab.
 
-**The keys.** Press `Esc` and then `?` for every key. The most used:
+**No modes.** The letters you type always go into the command line. `Tab` moves the focus
+between the suggestions, the output and the details, and the moving keys act on the panel
+that has the focus.
 
-| Key | Where | Action |
-|---|---|---|
-| `Enter`, `Tab` | Command line | Put in the suggestion under the cursor |
-| `Up`, `Down` | Command line | Move in the suggestions |
-| `Ctrl+W`, `Ctrl+U` | Command line | Delete the word before the cursor, or all text before it |
-| `Esc` | Command line | Go to the output |
-| `i` | Output | Go back to the command line |
-| `j` `k`, `gg` `G`, `h` `l` | Output | Scroll |
-| `/`, `n`, `N` | Output | Search, next match, match before |
-| `[`, `]` | Output | Tab before, next tab |
-| `s` | Output | Save the output of the tab to a file |
-| `r` | Output | Run the command again |
-| `H` | Output | History of runs |
-| `c` | Output | Cancel the run |
-| `y` | Output | Copy the command |
-| `q` | Output | Quit; during a run, press it twice |
-| `Ctrl+R` | Everywhere | Run the command |
-| `Ctrl+P` | Everywhere | Command palette |
-| `Ctrl+C` | Everywhere | Quit at once, and stop the run |
+**The keys.** Press `F1` for every key. The most used:
+
+| Key | Action |
+|---|---|
+| `Enter` | Put in the suggestion under the cursor |
+| `Ctrl+R` | Run the command |
+| `Tab`, `Shift+Tab` | Next panel, panel before |
+| `Up`, `Down`, `PgUp`, `PgDn` | Move in the panel that has the focus |
+| `Ctrl+Home`, `Ctrl+End` | Start, end of the panel; in the output, `Ctrl+End` follows new output |
+| `Shift+Left`, `Shift+Right` | Scroll the output to the side |
+| `Ctrl+W`, `Ctrl+U` | Delete the word before the cursor, or all text before it |
+| `Ctrl+F` | Search the output |
+| `Ctrl+N`, `Ctrl+B` | Next match, match before |
+| `Ctrl+PgUp`, `Ctrl+PgDn` | Tab before, next tab |
+| `Ctrl+S` | Save the output of the tab to a file |
+| `Ctrl+Y` | Copy the command |
+| `Ctrl+P` | Command palette |
+| `F1` | Help |
+| `Ctrl+C` | Cancel the run; with no run, quit |
+| `Ctrl+Q` | Quit at once, and stop the run |
+| `Esc` | Close a box or a prompt |
 
 The output search ignores case unless you type a capital letter.
 
-**The history.** `H` in the output lists your last runs. Type part of one and press `Enter`, and it
-goes into the command line, ready to change or to run.
+**The history.** The palette entry "history of runs" lists your last runs. Type part of one
+and press `Enter`, and it goes into the command line, ready to change or to run.
 
 **The palette.** `Ctrl+P` opens a box with every action. Type part of a name and press
 `Enter`. Some actions are only in the palette:
