@@ -149,10 +149,7 @@ pub fn text(d: &Data) {
         .fold(6, usize::max);
     let row = |k: &str, a: String, b: String| println!("{k:<key_w$} {a:<col_w$} {b}");
 
-    section(
-        "contractenvmetav0",
-        "the host protocol each build was made for",
-    );
+    println!("contractenvmetav0: the host protocol each build was made for\n");
     row("item", "sdk".into(), "solang".into());
     let n = s.env.len().max(l.env.len());
     for i in 0..n {
@@ -167,7 +164,7 @@ pub fn text(d: &Data) {
     }
     println!();
 
-    section("contractmetav0", "key and value text each build carries");
+    println!("contractmetav0: key and value text each build carries\n");
     row("key", "sdk".into(), "solang".into());
     let mut keys: Vec<&str> = s.meta.iter().map(|(k, _)| k.as_str()).collect();
     for (k, _) in &l.meta {
@@ -188,7 +185,7 @@ pub fn text(d: &Data) {
     }
     println!();
 
-    section("contractspecv0", "what each build declares, by kind");
+    println!("contractspecv0: what each build declares, by kind\n");
     println!("{:<KEY$} {:>6} {:>6}", "kind", "sdk", "solang");
     for (i, kind) in KINDS.iter().enumerate() {
         println!("{kind:<KEY$} {:>6} {:>6}", s.spec[i].len(), l.spec[i].len());
@@ -224,11 +221,6 @@ pub fn text(d: &Data) {
         }
     }
     println!();
-}
-
-/// The name of a custom section, underlined, then what it holds.
-fn section(name: &str, about: &str) {
-    println!("{name}\n{}\n{about}\n", "─".repeat(name.chars().count()));
 }
 
 pub fn json(d: &Data) -> Value {
