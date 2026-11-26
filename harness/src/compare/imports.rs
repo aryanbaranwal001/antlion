@@ -59,6 +59,13 @@ pub fn text(d: &Data) {
         "total", "", d.sdk_total, d.solang_total
     );
     println!();
+    println!(
+        "note: these are Soroban host functions, which the Soroban VM gives each contract to call"
+    );
+    println!(
+        "note: import is the module and the name in the wasm, function is the host function it is"
+    );
+    println!();
 }
 
 /// An unknown host function, `?` in the text, is `null`.
