@@ -26,8 +26,10 @@ pub fn text(d: &Data) {
         d.solang,
         super::signed(d.sdk as i64 - d.solang as i64)
     );
-    println!();
-    println!("note: sizes are in bytes");
+    if super::notes() {
+        println!();
+        println!("note: sizes are in bytes");
+    }
     println!();
 }
 

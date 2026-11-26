@@ -188,13 +188,15 @@ pub fn text(name: &str, d: &Data) {
         println!("\nevents: {verdict}\n");
     }
 
-    println!(
-        "note: only `contract` events are compared; `log` and `error` are the host's diagnostics"
-    );
-    println!(
-        "note: * marks an event from a call that failed; the network keeps only its diagnostics"
-    );
-    println!();
+    if super::notes() {
+        println!(
+            "note: only `contract` events are compared; `log` and `error` are the host's diagnostics"
+        );
+        println!(
+            "note: * marks an event from a call that failed; the network keeps only its diagnostics"
+        );
+        println!();
+    }
 }
 
 fn print_side(side: &str, s: &Side) {

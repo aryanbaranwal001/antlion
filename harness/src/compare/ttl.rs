@@ -318,9 +318,11 @@ pub fn text(name: &str, d: &Data) {
     }
     println!();
 
-    println!(
-        "each call on a fresh deploy at ledger 0, so an entry's last live ledger is also its ttl\n"
-    );
+    if super::notes() {
+        println!(
+            "each call on a fresh deploy at ledger 0, so an entry's last live ledger is also its ttl\n"
+        );
+    }
     for item in &d.items {
         let (sig, s, l) = match item {
             Item::Unsupported(sig) => {
@@ -402,10 +404,12 @@ pub fn text(name: &str, d: &Data) {
         }
     }
 
-    println!(
-        "note: rent is charged in proportion to its ledger bytes: one byte kept live for one ledger"
-    );
-    println!();
+    if super::notes() {
+        println!(
+            "note: rent is charged in proportion to its ledger bytes: one byte kept live for one ledger"
+        );
+        println!();
+    }
 }
 
 /// `s` cut to fit a column.

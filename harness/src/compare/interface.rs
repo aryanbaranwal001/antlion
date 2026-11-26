@@ -44,9 +44,11 @@ pub fn text(rows: &[Row]) {
         println!("{s:<w$}  {l}");
     }
 
-    println!();
-    println!("note: these are the soroban types, read from contractspecv0");
-    println!("note: in wasm itself every one of them is an i64 — a tagged Val");
+    if super::notes() {
+        println!();
+        println!("note: these are the soroban types, read from contractspecv0");
+        println!("note: in wasm itself every one of them is an i64 — a tagged Val");
+    }
     println!();
 }
 

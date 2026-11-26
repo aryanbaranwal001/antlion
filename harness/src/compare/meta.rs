@@ -212,13 +212,15 @@ pub fn text(d: &Data) {
             .collect::<Vec<_>>()
     };
     let same = sorted(s) == sorted(l);
-    println!();
-    if same {
-        println!("note: both builds declare the same types, errors and events");
-    } else {
-        println!(
-            "note: the builds declare different types, errors or events; functions are compared by `interface`"
-        );
+    if super::notes() {
+        println!();
+        if same {
+            println!("note: both builds declare the same types, errors and events");
+        } else {
+            println!(
+                "note: the builds declare different types, errors or events; functions are compared by `interface`"
+            );
+        }
     }
     println!();
 }

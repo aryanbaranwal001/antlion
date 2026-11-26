@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{fs, path::Path};
 
 use serde_json::{Map, Value, json};
@@ -146,8 +147,17 @@ const WIDTH: usize = 90;
 /// Bumped when the shape of the `--json` document changes.
 const SCHEMA_VERSION: u32 = 10;
 
+/// Off with `--bare`: the text reports then print no notes and no lines that explain how
+/// they ran.
+static NOTES: AtomicBool = AtomicBool::new(true);
+
+fn notes() -> bool {
+    NOTES.load(Ordering::Relaxed)
+}
+
 /// Run the requested reports over every named contract, in the order given.
 pub fn run(args: &cli::Compare) -> Result<()> {
+    NOTES.store(!args.bare, Ordering::Relaxed);
     pool(args.jobs.unwrap_or_else(default_jobs))?.install(|| all(args))
 }
 

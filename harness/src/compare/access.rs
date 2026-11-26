@@ -357,13 +357,15 @@ pub fn text(name: &str, d: &Data) {
         }
     }
 
-    println!(
-        "note: read and write count the ledger entries in the call's footprint; bytes is what it writes"
-    );
-    println!(
-        "note: each call ran as the network runs it: recorded first, then enforced with that footprint"
-    );
-    println!();
+    if super::notes() {
+        println!(
+            "note: read and write count the ledger entries in the call's footprint; bytes is what it writes"
+        );
+        println!(
+            "note: each call ran as the network runs it: recorded first, then enforced with that footprint"
+        );
+        println!();
+    }
 }
 
 pub fn json(d: &Data) -> Value {

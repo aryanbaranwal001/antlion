@@ -1121,7 +1121,7 @@ mod tests {
         enter(&mut app);
         assert_eq!(app.line, "--compare numeric --report cost --json ");
         assert_eq!(app.cursor, app.line.len());
-        assert_eq!(texts(&app), ["--detail", "--jobs"]);
+        assert_eq!(texts(&app), ["--detail", "--bare", "--jobs"]);
     }
 
     #[test]

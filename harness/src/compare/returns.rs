@@ -217,15 +217,17 @@ pub fn text(name: &str, d: &Data) {
         }
     }
 
-    println!();
-    println!(
-        "note: {} call(s) ran on both sides, {} disagreed",
-        d.checked, d.differ
-    );
-    println!(
-        "note: {} call(s) failed on both sides with different errors",
-        d.errors_differ
-    );
+    if super::notes() {
+        println!();
+        println!(
+            "note: {} call(s) ran on both sides, {} disagreed",
+            d.checked, d.differ
+        );
+        println!(
+            "note: {} call(s) failed on both sides with different errors",
+            d.errors_differ
+        );
+    }
     println!();
 }
 

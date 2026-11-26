@@ -126,9 +126,11 @@ pub fn text(name: &str, d: &Data) {
         return;
     }
 
-    println!(
-        "one deploy per side, called at every size from 0 to {MAX} in order; size n is every integer argument n and every list n long\n"
-    );
+    if super::notes() {
+        println!(
+            "one deploy per side, called at every size from 0 to {MAX} in order; size n is every integer argument n and every list n long\n"
+        );
+    }
 
     for item in &d.items {
         let (sig, s, l) = match item {
@@ -184,11 +186,13 @@ pub fn text(name: &str, d: &Data) {
         println!("\ngrowth: sdk {}, solang {}\n", growth(s), growth(l));
     }
 
-    println!(
-        "note: growth is the power of n that fits the cpu from n = 4 to 16 to 64; flat is under 1%"
-    );
-    println!("note: cpu is in metered instructions and mem in bytes, for one call");
-    println!();
+    if super::notes() {
+        println!(
+            "note: growth is the power of n that fits the cpu from n = 4 to 16 to 64; flat is under 1%"
+        );
+        println!("note: cpu is in metered instructions and mem in bytes, for one call");
+        println!();
+    }
 }
 
 /// A failed deploy is `{"err": ...}` in place of the sizes; a failed call is `{"err": ...}`

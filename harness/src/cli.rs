@@ -18,6 +18,8 @@ pub struct Compare {
     /// The reports to run, in the order given, with `all` already replaced by every report.
     pub reports: Vec<Report>,
     pub json: bool,
+    /// Leave out the notes and the lines that explain how a report ran.
+    pub bare: bool,
     pub mode: Mode,
     /// Threads for the reports that call contracts. `None` leaves the choice to `compare`.
     pub jobs: Option<usize>,
@@ -55,7 +57,7 @@ pub fn parse(args: &[String]) -> Result<Command> {
 fn compare(args: &[String]) -> Result<Compare> {
     let names: Vec<&str> = Report::ALL.iter().map(|r| r.name()).collect();
     let usage = format!(
-        "[err] usage: --compare <name>... --report {}|all [--json] [--detail|--dump] [--jobs <n>]",
+        "[err] usage: --compare <name>... --report {}|all [--json] [--bare] [--detail|--dump] [--jobs <n>]",
         names.join("|")
     );
 
@@ -77,13 +79,14 @@ fn compare(args: &[String]) -> Result<Compare> {
         )));
     };
 
-    // Trailing flags, in any order: `--json`, one of `--detail` or `--dump`, and
-    // `--jobs <n>`.
+    // Trailing flags, in any order: `--json`, `--bare`, one of `--detail` or `--dump`,
+    // and `--jobs <n>`.
     let bad_jobs = || Error::usage("--jobs needs a number, 1 or more");
-    let (mut reports, mut json, mut mode, mut jobs) = (rest, false, None, None);
+    let (mut reports, mut json, mut bare, mut mode, mut jobs) = (rest, false, false, None, None);
     while let Some((last, elements)) = reports.split_last() {
         match last.as_str() {
             "--json" if !json => json = true,
+            "--bare" if !bare => bare = true,
             "--detail" if mode.is_none() => mode = Some(Mode::Detail),
             "--dump" if mode.is_none() => mode = Some(Mode::Dump),
             "--jobs" if jobs.is_none() => return Err(bad_jobs()),
@@ -123,6 +126,7 @@ fn compare(args: &[String]) -> Result<Compare> {
         names: first_of_each(names),
         reports: first_of_each(reports),
         json,
+        bare,
         mode: mode.unwrap_or(Mode::Totals),
         jobs,
     })
@@ -199,6 +203,7 @@ mod tests {
         assert_eq!(c.names, ["flow"]);
         assert_eq!(c.reports, [Report::Size]);
         assert!(!c.json);
+        assert!(!c.bare);
         assert_eq!(c.mode, Mode::Totals);
     }
 
@@ -219,6 +224,11 @@ mod tests {
         let c = compare_of("--compare flow --report opcodes --json --dump");
         assert!(c.json);
         assert_eq!(c.mode, Mode::Dump);
+
+        let c = compare_of("--compare flow --report size --bare --jobs 2 --json");
+        assert!(c.bare && c.json);
+        assert_eq!(c.jobs, Some(2));
+        assert!(is_usage("--compare flow --report size --bare --bare"));
     }
 
     #[test]

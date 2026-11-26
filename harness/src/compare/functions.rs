@@ -104,17 +104,21 @@ pub fn text(d: &Data) {
         row(&format!("{s_n}│{l_n} internal"), Some(s), Some(l));
     }
 
-    println!();
-    println!(
-        "note: bytes, instrs, locals, depth and calls count only the code of each function, not the functions it calls"
-    );
-    println!("note: bytes is the size of the body, instrs the wasm instructions in it");
-    println!("note: locals is the locals the body declares, not counting the parameters");
-    println!("note: depth is the deepest nesting of blocks, loops and ifs in the body");
-    println!("note: calls is the call instructions in the body, each counted once, even in a loop");
-    println!(
-        "note: the internal row adds up the functions that are not exported, but takes the deepest depth"
-    );
+    if super::notes() {
+        println!();
+        println!(
+            "note: bytes, instrs, locals, depth and calls count only the code of each function, not the functions it calls"
+        );
+        println!("note: bytes is the size of the body, instrs the wasm instructions in it");
+        println!("note: locals is the locals the body declares, not counting the parameters");
+        println!("note: depth is the deepest nesting of blocks, loops and ifs in the body");
+        println!(
+            "note: calls is the call instructions in the body, each counted once, even in a loop"
+        );
+        println!(
+            "note: the internal row adds up the functions that are not exported, but takes the deepest depth"
+        );
+    }
     println!();
 }
 

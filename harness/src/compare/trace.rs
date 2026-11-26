@@ -257,13 +257,15 @@ pub fn text(name: &str, d: &Data) {
         println!("trace: {verdict}\n");
     }
 
-    println!(
-        "note: = the same call on both sides, ~ the same host function with other arguments, - sdk only, + solang only"
-    );
-    println!(
-        "note: an object argument is a handle, such as Vec(obj#3), so two equal objects can show different numbers"
-    );
-    println!();
+    if super::notes() {
+        println!(
+            "note: = the same call on both sides, ~ the same host function with other arguments, - sdk only, + solang only"
+        );
+        println!(
+            "note: an object argument is a handle, such as Vec(obj#3), so two equal objects can show different numbers"
+        );
+        println!();
+    }
 }
 
 pub fn json(d: &Data) -> Value {

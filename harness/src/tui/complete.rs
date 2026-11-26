@@ -31,7 +31,7 @@ pub struct Suggestion {
 const COMMANDS: [&str; 4] = ["--compare", "--build", "--help", "--version"];
 
 /// The flags after the reports that fit every report, in the order they are suggested.
-const TRAILING: [&str; 2] = ["--json", "--jobs"];
+const TRAILING: [&str; 3] = ["--json", "--bare", "--jobs"];
 
 /// The word the cursor is at the end of: the text of `before` after its last space.
 pub fn word(before: &str) -> &str {
@@ -255,20 +255,20 @@ mod tests {
         let after_size = texts("--compare flow --report size ");
         assert!(!after_size.contains(&"size".to_string()));
         assert!(!after_size.contains(&"all".to_string()));
-        assert_eq!(after_size[after_size.len() - 2..], ["--json", "--jobs"]);
+        assert_eq!(after_size[after_size.len() - 3..], TRAILING);
         assert!(!after_size.contains(&"--detail".to_string()));
         assert!(!after_size.contains(&"--dump".to_string()));
 
         assert_eq!(
             texts("--compare flow --report all "),
-            ["--detail", "--dump", "--json", "--jobs"]
+            ["--detail", "--dump", "--json", "--bare", "--jobs"]
         );
-        assert_eq!(
-            texts("--compare flow --report opcodes --detail "),
-            ["--json", "--jobs"]
-        );
+        assert_eq!(texts("--compare flow --report opcodes --detail "), TRAILING);
         assert!(texts("--compare flow --report size --jobs ").is_empty());
-        assert_eq!(texts("--compare flow --report size --jobs 2 "), ["--json"]);
+        assert_eq!(
+            texts("--compare flow --report size --jobs 2 "),
+            ["--json", "--bare"]
+        );
     }
 
     #[test]
@@ -277,7 +277,7 @@ mod tests {
         let t = texts("--compare flow --report opcodes ");
         assert_eq!(t[..3], ["--detail", "--dump", "size"]);
         assert!(!t.contains(&"opcodes".to_string()));
-        assert_eq!(t[t.len() - 2..], ["--json", "--jobs"]);
+        assert_eq!(t[t.len() - 3..], TRAILING);
         // After cost, only --detail fits.
         let t = texts("--compare flow --report cost ");
         assert_eq!(t[..2], ["--detail", "size"]);
@@ -286,7 +286,7 @@ mod tests {
         let t = texts("--compare flow --report opcodes size ");
         assert_eq!(t[0], "sections");
         assert!(!t.iter().any(|f| f == "--detail" || f == "--dump"));
-        assert_eq!(t[t.len() - 2..], TRAILING);
+        assert_eq!(t[t.len() - 3..], TRAILING);
     }
 
     fn details_of(before: &str) -> (String, Vec<String>) {

@@ -91,9 +91,11 @@ pub fn text(d: &Data) {
         row(r.label, &r.sdk, &r.solang);
     }
 
-    println!();
-    for n in &d.notes {
-        println!("note: {n}");
+    if super::notes() {
+        println!();
+        for n in &d.notes {
+            println!("note: {n}");
+        }
     }
     println!();
 }

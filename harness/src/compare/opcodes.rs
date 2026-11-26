@@ -130,8 +130,10 @@ fn default(d: &Data) {
         row(b.name, b.sdk, b.solang, "");
     }
     row("total", d.total.0, d.total.1, "");
-    println!();
-    println!("note: counts are wasm instructions in the code section");
+    if super::notes() {
+        println!();
+        println!("note: counts are wasm instructions in the code section");
+    }
     println!();
 }
 
@@ -156,8 +158,10 @@ fn detail(d: &Data) {
     println!("exclusive opcodes (present on only one side)");
     println!("sdk only:    {}", join(&d.sdk_only));
     println!("solang only: {}", join(&d.solang_only));
-    println!();
-    println!("note: counts are wasm instructions in the code section");
+    if super::notes() {
+        println!();
+        println!("note: counts are wasm instructions in the code section");
+    }
     println!();
 }
 

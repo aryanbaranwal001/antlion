@@ -286,19 +286,22 @@ pub fn text(name: &str, d: &Data, mode: Mode) {
 
     fails(d, module);
 
-    println!(
-        "note: run is a call's cpu less the module's instantiate cost: what its function alone used"
-    );
-    if unsteady.is_empty() {
+    if super::notes() {
         println!(
-            "note: every call ran {RUNS} times, each on a fresh host, and cost the same each time"
+            "note: run is a call's cpu less the module's instantiate cost: what its function alone used"
         );
-    } else {
-        for u in &unsteady {
-            println!("[warn] {u}: the cost was not the same in all {RUNS} runs");
+        if unsteady.is_empty() {
+            println!(
+                "note: every call ran {RUNS} times, each on a fresh host, and cost the same each time"
+            );
         }
     }
-    println!();
+    for u in &unsteady {
+        println!("[warn] {u}: the cost was not the same in all {RUNS} runs");
+    }
+    if super::notes() || !unsteady.is_empty() {
+        println!();
+    }
 }
 
 /// Every call that failed on one side or both, at any input, with the run cost of each side.

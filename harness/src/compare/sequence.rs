@@ -169,7 +169,11 @@ pub fn text(name: &str, d: &Data) {
         return;
     }
 
-    println!("one deploy per side, every function in spec order, {ROUNDS} rounds, small inputs\n");
+    if super::notes() {
+        println!(
+            "one deploy per side, every function in spec order, {ROUNDS} rounds, small inputs\n"
+        );
+    }
     println!(
         "{:<STEP$} {:<NAME$} {:<VALUE$} {:<VALUE$} {:<CHANGED$} verdict",
         "step", "function", "sdk", "solang", "changed"
@@ -207,26 +211,28 @@ pub fn text(name: &str, d: &Data) {
         println!("[skip] {sig}: unsupported arg types");
     }
 
-    println!();
-    println!(
-        "note: {} step(s) ran on both sides, {} disagreed",
-        d.checked, d.differ
-    );
-    println!(
-        "note: {} step(s) failed on both sides with different errors",
-        d.errors_differ
-    );
-    println!(
-        "note: the storage layouts differ by design, so only whether a step changed it is compared"
-    );
-    // A failed call writes nothing, so after it the two sides hold different state.
-    if d.rows
-        .iter()
-        .any(|r| matches!(r.verdict, "sdk failed" | "solang failed"))
-    {
+    if super::notes() {
+        println!();
         println!(
-            "note: one side failed a step, so later steps can disagree because of that failure alone"
+            "note: {} step(s) ran on both sides, {} disagreed",
+            d.checked, d.differ
         );
+        println!(
+            "note: {} step(s) failed on both sides with different errors",
+            d.errors_differ
+        );
+        println!(
+            "note: the storage layouts differ by design, so only whether a step changed it is compared"
+        );
+        // A failed call writes nothing, so after it the two sides hold different state.
+        if d.rows
+            .iter()
+            .any(|r| matches!(r.verdict, "sdk failed" | "solang failed"))
+        {
+            println!(
+                "note: one side failed a step, so later steps can disagree because of that failure alone"
+            );
+        }
     }
     println!();
 }
