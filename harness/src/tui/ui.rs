@@ -152,6 +152,7 @@ COMMAND LINE
     Left Right       move the cursor; Home and End go to the start and the end
     Backspace Del    delete the character before the cursor, or at it
     Ctrl+W Ctrl+U    delete the word before the cursor, or all text before it
+    Ctrl+Backspace   delete back to the start of the word, stopping at - and /
     Alt+Up Alt+Down  an older run, a newer run from the history; past the newest,
                      the text you typed
 

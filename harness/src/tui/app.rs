@@ -645,6 +645,16 @@ impl App {
         self.cursor += 1;
     }
 
+    /// Delete the word before the cursor, as a shell does: first anything that is not a
+    /// letter, a digit or `_`, then the letters, digits and `_` before it.
+    fn delete_word(&mut self) {
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        let head = self.before().trim_end_matches(|c| !word(c));
+        let start = head.trim_end_matches(word).len();
+        self.line.replace_range(start..self.cursor, "");
+        self.cursor = start;
+    }
+
     /// The keys that edit the command line.
     fn line_key(&mut self, k: KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
@@ -661,6 +671,10 @@ impl App {
                 self.line.replace_range(start..self.cursor, "");
                 self.cursor = start;
             }
+            // Ctrl+Backspace: most terminals send it as Ctrl+H, the kitty keyboard protocol
+            // as Backspace with Ctrl, and some as Alt+Backspace.
+            KeyCode::Char('h') if ctrl => self.delete_word(),
+            KeyCode::Backspace if ctrl || alt => self.delete_word(),
             KeyCode::Char(c) if !ctrl && !alt => {
                 self.line.insert(self.cursor, c);
                 self.cursor += c.len_utf8();
@@ -847,6 +861,26 @@ mod tests {
         assert_eq!(app.line, "-compare ");
         ctrl(&mut app, 'u');
         assert_eq!((app.line.as_str(), app.cursor), ("", 0));
+        // Ctrl+Backspace deletes back to the start of a word, so it stops at - and /. It
+        // comes as Ctrl+H, as Backspace with Ctrl, or as Alt+Backspace.
+        keys(&mut app, "--build contracts/flow");
+        ctrl(&mut app, 'h');
+        assert_eq!(app.line, "--build contracts/");
+        press(&mut app, KeyCode::Backspace, KeyModifiers::CONTROL);
+        assert_eq!(app.line, "--build ");
+        press(&mut app, KeyCode::Backspace, KeyModifiers::ALT);
+        assert_eq!(app.line, "--");
+        ctrl(&mut app, 'h');
+        assert_eq!((app.line.as_str(), app.cursor), ("", 0));
+        // In the middle of the line, only the text before the cursor goes.
+        keys(&mut app, "--compare flow");
+        for _ in 0..5 {
+            press(&mut app, KeyCode::Left, KeyModifiers::NONE);
+        }
+        ctrl(&mut app, 'h');
+        assert_eq!((app.line.as_str(), app.cursor), ("-- flow", 2));
+        press(&mut app, KeyCode::End, KeyModifiers::NONE);
+        ctrl(&mut app, 'u');
         // Keys at the ends of the line do nothing.
         press(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
         press(&mut app, KeyCode::Left, KeyModifiers::NONE);
