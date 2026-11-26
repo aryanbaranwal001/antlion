@@ -88,10 +88,6 @@ pub enum Ask {
     Palette,
     /// The history of runs, in the palette box: the text filters the runs.
     History,
-    /// The presets, in the palette box: the text filters them.
-    Presets,
-    /// A name to save the command line as a preset under.
-    PresetName,
     /// A file name to save the output of the tab to.
     Save,
     /// Whether to write over the file the text names. `y` agrees.
@@ -111,12 +107,6 @@ pub enum Act {
     History,
     /// Check the tools, `out/` and the pairs.
     Doctor,
-    /// Ask for a name, and save the command line as a preset.
-    SavePreset,
-    /// Open the presets.
-    Presets,
-    /// Put the preset with this index in the presets into the command line.
-    LoadPreset(usize),
     /// Put the run with this index in the history into the command line.
     Load(usize),
 }
@@ -181,10 +171,6 @@ pub struct App {
     /// While Alt+Up and Alt+Down step through the history: the run in the command line,
     /// and the text the line had before the first step.
     pub recall: Option<(usize, String)>,
-    /// The folder of the config file; `None` keeps no presets.
-    pub config_dir: Option<std::path::PathBuf>,
-    /// The presets as they were read when the presets were last opened.
-    pub presets: Vec<(String, Vec<String>)>,
     /// Text to put in the clipboard, which the loop sends to the terminal after the draw.
     pub copy: Option<String>,
 }
@@ -215,8 +201,6 @@ impl Default for App {
             state_dir: None,
             history: Vec::new(),
             recall: None,
-            config_dir: None,
-            presets: Vec::new(),
         };
         app.refresh();
         app
@@ -312,23 +296,6 @@ impl App {
         self.history.drain(..from);
     }
 
-    /// Save the command line as the preset `name` in the config file.
-    fn save_preset(&mut self, name: &str) {
-        let args = self.args();
-        if let Some(e) = command::refusal(&args) {
-            self.status = Some(format!("not saved: {e}"));
-            return;
-        }
-        let Some(d) = &self.config_dir else {
-            self.status = Some("no config folder: set ANTLION_CONFIG_DIR or HOME".into());
-            return;
-        };
-        self.status = Some(match super::store::save_preset(d, name, &args) {
-            Ok(()) => format!("saved the preset {name}"),
-            Err(e) => e,
-        });
-    }
-
     /// Put `args` into the command line, with the cursor after a space at its end, so the
     /// suggestions show what can come next.
     fn load(&mut self, args: &[String]) {
@@ -376,7 +343,7 @@ impl App {
     /// A key while the prompt is open: type, delete, confirm or give up.
     fn prompt_key(&mut self, k: KeyEvent) {
         let Some(p) = &mut self.prompt else { return };
-        if matches!(p.ask, Ask::Palette | Ask::History | Ask::Presets) {
+        if matches!(p.ask, Ask::Palette | Ask::History) {
             self.palette_key(k);
             return;
         }
@@ -398,8 +365,6 @@ impl App {
             KeyCode::Enter => {
                 let p = self.prompt.take().expect("the prompt is open");
                 match p.ask {
-                    Ask::PresetName if p.text.is_empty() => {}
-                    Ask::PresetName => self.save_preset(&p.text),
                     Ask::Save if p.text.is_empty() => {}
                     Ask::Save if std::path::Path::new(&p.text).exists() => {
                         self.prompt = Some(Prompt {
@@ -408,7 +373,7 @@ impl App {
                         });
                     }
                     Ask::Save => self.save(&p.text),
-                    Ask::Palette | Ask::History | Ask::Presets => {
+                    Ask::Palette | Ask::History => {
                         unreachable!("the palette has its own keys")
                     }
                     Ask::Overwrite => unreachable!("handled above"),
@@ -437,8 +402,6 @@ impl App {
                 "",
                 Act::Doctor,
             ),
-            e("save the command as a preset", "", Act::SavePreset),
-            e("load a preset", "", Act::Presets),
             e("quit", "Ctrl+Q", Act::Quit),
         ]
     }
@@ -448,16 +411,6 @@ impl App {
         let text = self.prompt.as_ref().map_or("", |p| p.text.as_str());
         let entries = match self.prompt.as_ref().map(|p| p.ask) {
             Some(Ask::History) => self.history_entries(),
-            Some(Ask::Presets) => self
-                .presets
-                .iter()
-                .enumerate()
-                .map(|(i, (name, args))| Entry {
-                    label: format!("{name}   {}", command::line(args)),
-                    key: "",
-                    act: Act::LoadPreset(i),
-                })
-                .collect(),
             _ => self.entries(),
         };
         let mut all: Vec<Option<Entry>> = entries.into_iter().map(Some).collect();
@@ -560,29 +513,6 @@ impl App {
                 self.reload();
                 let lines = super::catalog::doctor(&self.root, &self.pairs);
                 self.info = Some(("doctor".to_string(), lines, 0));
-            }
-            Act::SavePreset => self.ask(Ask::PresetName),
-            Act::Presets => {
-                let Some(d) = &self.config_dir else {
-                    self.status = Some("no config folder: set ANTLION_CONFIG_DIR or HOME".into());
-                    return;
-                };
-                match super::store::presets(d) {
-                    Err(e) => self.status = Some(e),
-                    Ok(p) if p.is_empty() => {
-                        self.status = Some("no preset yet: save one from the palette".into())
-                    }
-                    Ok(p) => {
-                        self.presets = p;
-                        self.ask(Ask::Presets);
-                    }
-                }
-            }
-            Act::LoadPreset(i) => {
-                if let Some((_, args)) = self.presets.get(i) {
-                    let args = args.clone();
-                    self.load(&args);
-                }
             }
             Act::Load(i) => {
                 if let Some(r) = self.history.get(i) {
@@ -1137,52 +1067,6 @@ mod tests {
         keys(&mut app, "--b");
         alt(&mut app, KeyCode::Up);
         assert_eq!(app.line, "--b");
-    }
-
-    #[test]
-    fn presets() {
-        let d = super::super::catalog::tests::scratch("app-presets");
-        let mut app = App {
-            config_dir: Some(d.clone()),
-            ..App::default()
-        };
-        let palette = |app: &mut App, text: &str| {
-            ctrl(app, 'p');
-            keys(app, text);
-            enter(app);
-        };
-        palette(&mut app, "load a preset");
-        assert!(
-            app.status
-                .as_deref()
-                .is_some_and(|s| s.starts_with("no preset yet"))
-        );
-
-        // A command the CLI refuses is not saved.
-        keys(&mut app, "--compare numeric");
-        palette(&mut app, "save the command");
-        keys(&mut app, "bad");
-        enter(&mut app);
-        assert!(
-            app.status
-                .as_deref()
-                .is_some_and(|s| s.starts_with("not saved"))
-        );
-
-        keys(&mut app, " --report cost");
-        palette(&mut app, "save the command");
-        keys(&mut app, "cost of numeric");
-        enter(&mut app);
-        assert_eq!(
-            app.status.as_deref(),
-            Some("saved the preset cost of numeric")
-        );
-
-        ctrl(&mut app, 'u');
-        palette(&mut app, "load a preset");
-        assert!(app.palette_hits()[0].label.starts_with("cost of numeric"));
-        enter(&mut app);
-        assert_eq!(app.line, "--compare numeric --report cost ");
     }
 
     #[test]

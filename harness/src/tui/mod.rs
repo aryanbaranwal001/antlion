@@ -41,7 +41,6 @@ pub fn run() -> Result<()> {
     app.root = dir.clone();
     app.status = catalog::root_warning(&dir);
     app.state_dir = store::state_dir();
-    app.config_dir = store::config_dir();
     if let Some(d) = &app.state_dir {
         app.history = store::history(d);
     }
