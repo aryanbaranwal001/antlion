@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 /// The most runs the history keeps. A new run past this drops the oldest.
 pub const MAX_HISTORY: usize = 200;
 
-/// The folder for the history: `ANTLION_CONFIG_DIR` when it is set, else
+/// The folder for the history: `ANTLION_HISTORY_DIR` when it is set, else
 /// `$XDG_STATE_HOME/antlion`, else `~/.local/state/antlion`. `None` when none is known.
 pub fn state_dir() -> Option<PathBuf> {
     dir("XDG_STATE_HOME", ".local/state")
@@ -23,7 +23,7 @@ fn dir(xdg: &str, home: &str) -> Option<PathBuf> {
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
     };
-    var("ANTLION_CONFIG_DIR")
+    var("ANTLION_HISTORY_DIR")
         .or_else(|| var(xdg).map(|d| d.join("antlion")))
         .or_else(|| var("HOME").map(|h| h.join(home).join("antlion")))
 }
