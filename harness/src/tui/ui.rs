@@ -185,16 +185,9 @@ PALETTE AND PROMPTS
     Esc              close
 ";
 
-/// The help overlay: every key, then the inputs part of `help.md`.
+/// The help overlay: every key.
 fn help(f: &mut Frame, top: usize) {
-    let help_md = include_str!("../../../help.md");
-    let inputs = help_md
-        .split("\nINPUTS\n")
-        .nth(1)
-        .and_then(|s| s.split("\nBUNDLED CONTRACTS\n").next())
-        .unwrap_or("");
-    let text = format!("{KEYS}\nINPUTS\n{inputs}");
-    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let lines: Vec<String> = KEYS.lines().map(str::to_string).collect();
     popup(f, "Help", &lines, top);
 }
 
@@ -452,13 +445,8 @@ pub(super) mod tests {
         assert!(s[1].contains(" Help "));
         assert!(s[2].contains("COMMAND LINE"));
         assert!(s.iter().any(|r| r.contains("put in the suggestion")));
-        // The inputs part of help.md comes after the keys.
-        assert!((0..120).any(|top| {
-            app.help = Some(top);
-            screen(&app, 100, 60)
-                .iter()
-                .any(|r| r.contains("small       values that ride inline"))
-        }));
+        // Only the keys: no INPUTS part.
+        assert!(s.iter().all(|r| !r.contains("INPUTS")));
     }
 
     #[test]

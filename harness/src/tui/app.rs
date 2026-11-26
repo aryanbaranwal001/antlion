@@ -391,7 +391,7 @@ impl App {
             act,
         };
         vec![
-            e("help: every key, and the inputs", "F1", Act::Help),
+            e("help: every key", "F1", Act::Help),
             e("run the command", "Ctrl+R", Act::Run),
             e("copy the command", "Ctrl+Y", Act::Copy),
             e("cancel the run", "Ctrl+C", Act::Cancel),
