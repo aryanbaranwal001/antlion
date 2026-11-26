@@ -175,28 +175,13 @@ To search all of them, the palette entry "history of runs" lists your last runs.
 of one and press `Enter`, and it goes into the command line, ready to change or to run.
 
 **The palette.** `Ctrl+P` opens a box with every action. Type part of a name and press
-`Enter`. Some actions are only in the palette:
+`Enter`. One action is only in the palette: the doctor, which checks that `solang` and
+`stellar` are on `PATH`, that `out/` is there, and which pairs are stale or not built, with
+a fix for each problem.
 
-- save the command as a preset, and load a preset into the command line;
-- the doctor, which checks that `solang` and `stellar` are on `PATH`, that `out/` is there,
-  and which pairs are stale or not built, with a fix for each problem.
-
-**Files.** The UI keeps two files:
-
-| File | What it holds |
-|---|---|
-| `~/.local/state/antlion/history.jsonl` | The last 200 antlion runs: time, arguments, exit code and duration |
-| `~/.config/antlion/config.toml` | Your presets |
-
-`$XDG_STATE_HOME` and `$XDG_CONFIG_HOME` move them, and `ANTLION_CONFIG_DIR` puts both in
-one folder. The config file looks like this:
-
-```toml
-[presets."cost of numeric pairs"]
-args = ["--compare", "numeric", "--report", "cost"]
-```
-
-When the UI saves a preset, it keeps the rest of the file, comments too.
+**Files.** The UI keeps one file, `~/.local/state/antlion/history.jsonl`: the last 200
+antlion runs, with the time, the arguments, the exit code and the duration of each.
+`$XDG_STATE_HOME` moves it, and `ANTLION_CONFIG_DIR` puts it in a folder you choose.
 
 The UI is a cargo feature, `interactive`, on by default. `cargo build --no-default-features`
 leaves it out, and then `--interactive` exits with 1.
