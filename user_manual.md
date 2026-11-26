@@ -179,9 +179,7 @@ of one and press `Enter`, and it goes into the command line, ready to change or 
 
 - save the command as a preset, and load a preset into the command line;
 - the doctor, which checks that `solang` and `stellar` are on `PATH`, that `out/` is there,
-  and which pairs are stale or not built, with a fix for each problem;
-- the `scripts/check.sh` tasks: `build`, `diff`, `save`, `wasm` and `time`. `save` asks
-  first, because it writes over the golden output.
+  and which pairs are stale or not built, with a fix for each problem.
 
 **Files.** The UI keeps two files:
 
