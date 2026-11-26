@@ -59,7 +59,7 @@ antlion --build /abs/path/to/mypair      ->  out/mypair/
 ### Compare
 
 ```
-antlion --compare <name>... --report <report>... [--json] [--detail | --dump] [--jobs <n>]
+antlion --compare <name>... --report <report>... [--json] [--bare] [--detail | --dump] [--jobs <n>]
 ```
 
 Compares the two builds of a pair. It takes the pair's **name**, not its path, and reads
@@ -75,10 +75,15 @@ antlion --compare scalar_id --report all
 antlion --compare scalar_id scalar_math --report size returns
 antlion --compare flow --report opcodes --dump
 antlion --compare scalar_id --report all --json
+antlion --compare scalar_id --report all --bare
 ```
 
-`--json`, `--detail`, `--dump` and `--jobs <n>` come after the report names, in any order.
-`--json` prints the same results as JSON; see [JSON output](#json-output). `--detail`
+`--json`, `--bare`, `--detail`, `--dump` and `--jobs <n>` come after the report names, in any order.
+`--json` prints the same results as JSON; see [JSON output](#json-output). `--bare` prints
+only the comparison: it leaves out every `note:` line, and the lines that explain how a
+report ran, such as the first line of `scaling` and `sequence`. The headings, the tables,
+the verdicts and the `[warn]`, `[err]` and `[skip]` lines stay. The JSON is the same with
+or without it. `--detail`
 affects the `opcodes` and `cost` reports, and `--dump` only `opcodes`; see
 [opcodes](#opcodes) and [cost](#cost).
 
@@ -122,7 +127,7 @@ and `Ctrl+R` does not run it.
 
 **The suggestions.** The pane on the right lists every word that can come at the cursor,
 in the order the CLI takes them: a command first, then the pairs after `--compare` (or the
-pair folders after `--build`), then `--report`, then the reports, then `--json`, `--detail`,
+pair folders after `--build`), then `--report`, then the reports, then `--json`, `--bare`, `--detail`,
 `--dump` and `--jobs`. A word you already typed is not suggested again, and `--detail` and
 `--dump` never go together. They show only right after the report they change, before
 the other reports: `--detail` and `--dump` after `opcodes` or `all`, and `--detail` after

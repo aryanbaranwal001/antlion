@@ -4,7 +4,7 @@ the Rust soroban-sdk, and Solidity through Solang.
 USAGE
 
     antlion --build <contract>...
-    antlion --compare <name>... --report <report>... [--json] [--detail | --dump] [--jobs <n>]
+    antlion --compare <name>... --report <report>... [--json] [--bare] [--detail | --dump] [--jobs <n>]
     antlion --interactive
     antlion --help
     antlion --version
@@ -26,6 +26,8 @@ OPTIONS
 
     --report <report>...  reports to run; required, pass `all` for every one
     --json                print one JSON document in place of the text reports
+    --bare                print only the comparison: no notes, and no lines that
+                          explain how a report ran
     --detail              opcodes: break each bucket into its opcodes; cost: add
                           what each cost type charged
     --dump                opcodes only: side-by-side disassembly
@@ -107,13 +109,15 @@ EXAMPLES
     antlion --compare scalar_id scalar_math --report size returns
     antlion --compare flow --report opcodes --dump
     antlion --compare scalar_id --report all --json
+    antlion --compare scalar_id --report all --bare
 
 NOTES
 
     --compare reads out/<name>/{sdk,solang}.wasm, so run --build first.
     --detail applies to the opcodes and cost reports, --dump to opcodes only.
-    --json, --detail, --dump and --jobs <n> come after the report names, in any
-    order. The results are the same for every --jobs value.
+    --json, --bare, --detail, --dump and --jobs <n> come after the report names, in
+    any order. The results are the same for every --jobs value.
+    --bare changes only the text reports; the JSON is the same with or without it.
     With --json, --detail changes nothing: the opcodes JSON always lists every
     opcode. --dump has no JSON form, so opcodes is left out and named under
     `no_json`.

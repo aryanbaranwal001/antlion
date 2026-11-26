@@ -63,6 +63,12 @@ Add `--json` to get the same results as one JSON document, for scripts and CI:
 antlion --compare scalar_id --report all --json
 ```
 
+Add `--bare` to get only the comparison, with no notes:
+
+```
+antlion --compare scalar_id --report all --bare
+```
+
 To see every report and option:
 
 ```
