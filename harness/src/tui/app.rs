@@ -189,6 +189,9 @@ pub struct App {
     pub state_dir: Option<std::path::PathBuf>,
     /// The runs in the history, the oldest first.
     pub history: Vec<super::store::Record>,
+    /// While Alt+Up and Alt+Down step through the history: the run in the command line,
+    /// and the text the line had before the first step.
+    pub recall: Option<(usize, String)>,
     /// The folder of the config file; `None` keeps no presets.
     pub config_dir: Option<std::path::PathBuf>,
     /// The presets as they were read when the presets were last opened.
@@ -222,6 +225,7 @@ impl Default for App {
             copy: None,
             state_dir: None,
             history: Vec::new(),
+            recall: None,
             config_dir: None,
             presets: Vec::new(),
         };
@@ -347,6 +351,26 @@ impl App {
         self.pick = 0;
         self.refresh();
         self.status = Some("loaded: press Ctrl+R to run it".to_string());
+    }
+
+    /// Put the run `step` places older (-1) or newer (+1) in the history into the command
+    /// line. A step past the newest run puts back the text the line had before.
+    fn recall(&mut self, step: isize) {
+        let (at, draft) = self
+            .recall
+            .take()
+            .unwrap_or_else(|| (self.history.len(), self.line.clone()));
+        let at = at.saturating_add_signed(step).min(self.history.len());
+        if at == self.history.len() {
+            self.line = draft;
+            self.cursor = self.line.len();
+            self.pick = 0;
+            self.refresh();
+            return;
+        }
+        let args = self.history[at].args.clone();
+        self.load(&args);
+        self.recall = Some((at, draft));
     }
 
     /// Read the pairs again, so the suggestions show a build made since.
@@ -676,7 +700,10 @@ impl App {
             Kind::Run
         };
         match Run::start(&self.program, args, &self.root) {
-            Ok(r) => self.add_kind(r, kind),
+            Ok(r) => {
+                self.recall = None;
+                self.add_kind(r, kind)
+            }
             Err(e) => self.status = Some(format!("cannot start {}: {e}", self.program)),
         }
     }
@@ -803,6 +830,11 @@ impl App {
         if (&self.line, self.cursor) != (&was.0, was.1) {
             self.pick = 0;
         }
+        // An edit makes the line the user's own, so the next Alt+Up starts again from
+        // the newest run.
+        if self.line != was.0 {
+            self.recall = None;
+        }
         self.refresh();
     }
 
@@ -811,6 +843,7 @@ impl App {
     pub fn key(&mut self, k: KeyEvent) {
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
         let shift = k.modifiers.contains(KeyModifiers::SHIFT);
+        let alt = k.modifiers.contains(KeyModifiers::ALT);
         // Ctrl+C and Ctrl+Q work everywhere, even while a box or a prompt is open.
         match k.code {
             KeyCode::Char('c') if ctrl && self.running() => {
@@ -865,6 +898,8 @@ impl App {
                     };
                 }
             }
+            KeyCode::Up if alt => self.recall(-1),
+            KeyCode::Down if alt => self.recall(1),
             KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
                 self.move_in(k.code)
             }
@@ -1122,6 +1157,61 @@ mod tests {
         assert_eq!(app.line, "--compare numeric --report cost --json ");
         assert_eq!(app.cursor, app.line.len());
         assert_eq!(texts(&app), ["--detail", "--bare", "--jobs"]);
+    }
+
+    #[test]
+    fn recall_with_alt() {
+        let record = |args: &[&str]| {
+            super::super::store::Record::new(
+                args.iter().map(|a| a.to_string()).collect(),
+                Some(0),
+                1.0,
+            )
+        };
+        let mut app = App {
+            history: vec![
+                record(&["--compare", "flow", "--report", "size"]),
+                record(&["--build", "contracts/flow"]),
+            ],
+            ..App::default()
+        };
+        let alt = |app: &mut App, code| press(app, code, KeyModifiers::ALT);
+        keys(&mut app, "--comp");
+
+        // Alt+Up goes to the newest run first, then to older ones, and stops at the oldest.
+        alt(&mut app, KeyCode::Up);
+        assert_eq!(app.line, "--build contracts/flow ");
+        assert_eq!(app.cursor, app.line.len());
+        alt(&mut app, KeyCode::Up);
+        assert_eq!(app.line, "--compare flow --report size ");
+        alt(&mut app, KeyCode::Up);
+        assert_eq!(app.line, "--compare flow --report size ");
+
+        // Alt+Down goes back, and past the newest run puts back what was typed.
+        alt(&mut app, KeyCode::Down);
+        assert_eq!(app.line, "--build contracts/flow ");
+        alt(&mut app, KeyCode::Down);
+        assert_eq!(app.line, "--comp");
+        assert_eq!(app.recall, None);
+        alt(&mut app, KeyCode::Down);
+        assert_eq!(app.line, "--comp");
+
+        // An edit keeps the line, and the next Alt+Up starts from the newest run again.
+        alt(&mut app, KeyCode::Up);
+        alt(&mut app, KeyCode::Up);
+        keys(&mut app, "x");
+        assert_eq!(app.line, "--compare flow --report size x");
+        assert_eq!(app.recall, None);
+        alt(&mut app, KeyCode::Up);
+        assert_eq!(app.line, "--build contracts/flow ");
+        alt(&mut app, KeyCode::Down);
+        assert_eq!(app.line, "--compare flow --report size x");
+
+        // With no history, the keys change nothing.
+        let mut app = App::default();
+        keys(&mut app, "--b");
+        alt(&mut app, KeyCode::Up);
+        assert_eq!(app.line, "--b");
     }
 
     #[test]
