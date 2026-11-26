@@ -158,6 +158,7 @@ that has the focus.
 | `Ctrl+Home`, `Ctrl+End` | Start, end of the panel; in the output, `Ctrl+End` follows new output |
 | `Shift+Left`, `Shift+Right` | Scroll the output to the side |
 | `Ctrl+W`, `Ctrl+U` | Delete the word before the cursor, or all text before it |
+| `Ctrl+Backspace` | Delete back to the start of the word, stopping at `-` and `/`, as in a shell |
 | `Alt+Up`, `Alt+Down` | Older run, newer run from the history |
 | `Ctrl+PgUp`, `Ctrl+PgDn` | Tab before, next tab |
 | `Ctrl+S` | Save the output of the tab to a file |
