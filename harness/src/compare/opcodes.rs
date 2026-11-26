@@ -131,6 +131,8 @@ fn default(d: &Data) {
     }
     row("total", d.total.0, d.total.1, "");
     println!();
+    println!("note: counts are wasm instructions in the code section");
+    println!();
 }
 
 /// As `default`, plus each bucket's individual opcodes and the one-sided ones.
@@ -154,6 +156,8 @@ fn detail(d: &Data) {
     println!("exclusive opcodes (present on only one side)");
     println!("sdk only:    {}", join(&d.sdk_only));
     println!("solang only: {}", join(&d.solang_only));
+    println!();
+    println!("note: counts are wasm instructions in the code section");
     println!();
 }
 

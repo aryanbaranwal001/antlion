@@ -187,6 +187,7 @@ pub fn text(name: &str, d: &Data) {
     println!(
         "note: growth is the power of n that fits the cpu from n = 4 to 16 to 64; flat is under 1%"
     );
+    println!("note: cpu is in metered instructions and mem in bytes, for one call");
     println!();
 }
 

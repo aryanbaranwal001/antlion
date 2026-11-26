@@ -27,6 +27,8 @@ pub fn text(d: &Data) {
         super::signed(d.sdk as i64 - d.solang as i64)
     );
     println!();
+    println!("note: sizes are in bytes");
+    println!();
 }
 
 pub fn json(d: &Data) -> Value {
