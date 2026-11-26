@@ -132,7 +132,7 @@ fn default(d: &Data) {
     row("total", d.total.0, d.total.1, "");
     if super::notes() {
         println!();
-        println!("note: counts are wasm instructions in the code section");
+        println!("note: counts are wasm instructions");
     }
     println!();
 }
@@ -160,7 +160,7 @@ fn detail(d: &Data) {
     println!("solang only: {}", join(&d.solang_only));
     if super::notes() {
         println!();
-        println!("note: counts are wasm instructions in the code section");
+        println!("note: counts are wasm instructions");
     }
     println!();
 }

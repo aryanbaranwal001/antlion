@@ -60,12 +60,7 @@ pub fn text(d: &Data) {
     );
     if super::notes() {
         println!();
-        println!(
-            "note: these are Soroban host functions, which the Soroban VM gives each contract to call"
-        );
-        println!(
-            "note: import is the module and the name in the wasm, function is the host function it is"
-        );
+        println!("note: these are Soroban host functions");
     }
     println!();
 }

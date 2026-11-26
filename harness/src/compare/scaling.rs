@@ -127,9 +127,7 @@ pub fn text(name: &str, d: &Data) {
     }
 
     if super::notes() {
-        println!(
-            "one deploy per side, called at every size from 0 to {MAX} in order; size n is every integer argument n and every list n long\n"
-        );
+        println!("n is every integer argument and the length of every list, from 0 to {MAX}\n");
     }
 
     for item in &d.items {
@@ -188,9 +186,8 @@ pub fn text(name: &str, d: &Data) {
 
     if super::notes() {
         println!(
-            "note: growth is the power of n that fits the cpu from n = 4 to 16 to 64; flat is under 1%"
+            "note: cpu is in instructions, mem in bytes; growth is the power of n, flat under 1%"
         );
-        println!("note: cpu is in metered instructions and mem in bytes, for one call");
         println!();
     }
 }

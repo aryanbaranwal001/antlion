@@ -220,12 +220,8 @@ pub fn text(name: &str, d: &Data) {
     if super::notes() {
         println!();
         println!(
-            "note: {} call(s) ran on both sides, {} disagreed",
-            d.checked, d.differ
-        );
-        println!(
-            "note: {} call(s) failed on both sides with different errors",
-            d.errors_differ
+            "note: {} call(s) ran on both sides, {} disagreed, {} failed with different errors",
+            d.checked, d.differ, d.errors_differ
         );
     }
     println!();

@@ -189,12 +189,7 @@ pub fn text(name: &str, d: &Data) {
     }
 
     if super::notes() {
-        println!(
-            "note: only `contract` events are compared; `log` and `error` are the host's diagnostics"
-        );
-        println!(
-            "note: * marks an event from a call that failed; the network keeps only its diagnostics"
-        );
+        println!("note: only contract events are compared; * is an event from a failed call");
         println!();
     }
 }

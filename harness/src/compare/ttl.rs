@@ -319,9 +319,7 @@ pub fn text(name: &str, d: &Data) {
     println!();
 
     if super::notes() {
-        println!(
-            "each call on a fresh deploy at ledger 0, so an entry's last live ledger is also its ttl\n"
-        );
+        println!("each call on a fresh deploy at ledger 0\n");
     }
     for item in &d.items {
         let (sig, s, l) = match item {
@@ -405,9 +403,7 @@ pub fn text(name: &str, d: &Data) {
     }
 
     if super::notes() {
-        println!(
-            "note: rent is charged in proportion to its ledger bytes: one byte kept live for one ledger"
-        );
+        println!("note: a ledger byte is one byte kept live for one ledger");
         println!();
     }
 }

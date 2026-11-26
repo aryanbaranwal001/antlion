@@ -287,14 +287,7 @@ pub fn text(name: &str, d: &Data, mode: Mode) {
     fails(d, module);
 
     if super::notes() {
-        println!(
-            "note: run is a call's cpu less the module's instantiate cost: what its function alone used"
-        );
-        if unsteady.is_empty() {
-            println!(
-                "note: every call ran {RUNS} times, each on a fresh host, and cost the same each time"
-            );
-        }
+        println!("note: run is the cpu less instantiate");
     }
     for u in &unsteady {
         println!("[warn] {u}: the cost was not the same in all {RUNS} runs");

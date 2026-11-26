@@ -217,9 +217,7 @@ pub fn text(d: &Data) {
         if same {
             println!("note: both builds declare the same types, errors and events");
         } else {
-            println!(
-                "note: the builds declare different types, errors or events; functions are compared by `interface`"
-            );
+            println!("note: the builds declare different types, errors or events");
         }
     }
     println!();

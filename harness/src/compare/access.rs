@@ -358,12 +358,7 @@ pub fn text(name: &str, d: &Data) {
     }
 
     if super::notes() {
-        println!(
-            "note: read and write count the ledger entries in the call's footprint; bytes is what it writes"
-        );
-        println!(
-            "note: each call ran as the network runs it: recorded first, then enforced with that footprint"
-        );
+        println!("note: read and write are ledger entries, bytes are the bytes written");
         println!();
     }
 }
