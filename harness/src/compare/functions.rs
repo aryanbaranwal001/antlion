@@ -107,9 +107,6 @@ pub fn text(d: &Data) {
     if super::notes() {
         println!();
         println!("note: each function counts only its own code, not the functions it calls");
-        println!(
-            "note: depth is the deepest block nesting; internal is every function not exported"
-        );
     }
     println!();
 }
