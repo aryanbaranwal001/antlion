@@ -181,7 +181,7 @@ a fix for each problem.
 
 **Files.** The UI keeps one file, `~/.local/state/antlion/history.jsonl`: the last 200
 antlion runs, with the time, the arguments, the exit code and the duration of each.
-`$XDG_STATE_HOME` moves it, and `ANTLION_CONFIG_DIR` puts it in a folder you choose.
+`$XDG_STATE_HOME` moves it, and `ANTLION_HISTORY_DIR` puts it in a folder you choose.
 
 The UI is a cargo feature, `interactive`, on by default. `cargo build --no-default-features`
 leaves it out, and then `--interactive` exits with 1.
