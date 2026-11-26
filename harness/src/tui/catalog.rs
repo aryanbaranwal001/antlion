@@ -258,9 +258,7 @@ pub fn doctor(root: &Path, pairs: &[Pair]) -> Vec<String> {
         out.push("ok      out/ is there".to_string());
     } else {
         out.push("problem out/ is not there, so no pair can be compared".to_string());
-        out.push(
-            "        fix: run --build contracts/<name>, or the check.sh build task".to_string(),
-        );
+        out.push("        fix: run --build contracts/<name>".to_string());
     }
 
     for (state, what) in [(State::Stale, "stale"), (State::None, "not built")] {

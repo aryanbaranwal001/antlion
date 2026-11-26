@@ -54,7 +54,6 @@ pub fn draw(f: &mut Frame, app: &App) {
             Ask::PresetName => "save the command as the preset: ",
             Ask::Save => "save to: ",
             Ask::Overwrite => "file is there, y to write over it: ",
-            Ask::Confirm(_) => "y to go on: ",
         };
         f.render_widget(Paragraph::new(format!(" {label}{}", p.text)), status);
         let x = status.x + 1 + (label.chars().count() + p.text.chars().count()) as u16;

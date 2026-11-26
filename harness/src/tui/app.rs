@@ -50,8 +50,6 @@ pub enum Kind {
     /// An antlion run that builds pairs. It goes into the history, and its end changes the
     /// build state of the pairs.
     Build,
-    /// A `scripts/check.sh` task.
-    Task,
 }
 
 impl Tab {
@@ -66,10 +64,7 @@ impl Tab {
 
     /// What the tab runs, as a shell line.
     pub fn title(&self) -> String {
-        match self.kind {
-            Kind::Task => format!("scripts/check.sh {}", self.run.args.join(" ")),
-            Kind::Run | Kind::Build => command::line(&self.run.args),
-        }
+        command::line(&self.run.args)
     }
 
     /// The first line the output pane shows, when it is `height` rows high.
@@ -93,8 +88,6 @@ pub enum Ask {
     Palette,
     /// The history of runs, in the palette box: the text filters the runs.
     History,
-    /// Whether to do an act that cannot be undone. `y` agrees.
-    Confirm(Act),
     /// The presets, in the palette box: the text filters them.
     Presets,
     /// A name to save the command line as a preset under.
@@ -118,10 +111,6 @@ pub enum Act {
     History,
     /// Check the tools, `out/` and the pairs.
     Doctor,
-    /// Run `scripts/check.sh` with this task.
-    Task(&'static str),
-    /// Run `scripts/check.sh save`, once the user agreed to write over the golden output.
-    SaveGolden,
     /// Ask for a name, and save the command line as a preset.
     SavePreset,
     /// Open the presets.
@@ -294,10 +283,7 @@ impl App {
             let was = t.run.running();
             t.run.poll();
             built |= t.kind == Kind::Build && was && !t.run.running();
-            if t.kind != Kind::Task
-                && was
-                && let Some((end, time)) = t.run.end
-            {
+            if was && let Some((end, time)) = t.run.end {
                 let exit = match end {
                     super::runner::End::Exited(c) => c,
                     super::runner::End::Cancelled => None,
@@ -379,29 +365,6 @@ impl App {
         self.refresh();
     }
 
-    /// Run `scripts/check.sh task` in a new tab. `build` changes `out/`, so it counts as a
-    /// build.
-    fn task(&mut self, task: &str) {
-        if self.running() {
-            self.status = Some("a run is active: wait for it, or cancel it".to_string());
-            return;
-        }
-        let script = self.root.join("scripts/check.sh");
-        let kind = if task == "build" {
-            Kind::Build
-        } else {
-            Kind::Task
-        };
-        match Run::start(
-            &script.to_string_lossy(),
-            vec![task.to_string()],
-            &self.root,
-        ) {
-            Ok(r) => self.add_kind(r, kind),
-            Err(e) => self.status = Some(format!("cannot start {}: {e}", script.display())),
-        }
-    }
-
     /// Show `run` in a new tab of `kind`.
     fn add_kind(&mut self, run: Run, kind: Kind) {
         self.add_tab(run);
@@ -415,15 +378,6 @@ impl App {
         let Some(p) = &mut self.prompt else { return };
         if matches!(p.ask, Ask::Palette | Ask::History | Ask::Presets) {
             self.palette_key(k);
-            return;
-        }
-        if let Ask::Confirm(act) = p.ask {
-            self.prompt = None;
-            if k.code == KeyCode::Char('y') {
-                self.act(act);
-            } else {
-                self.status = Some("not done".to_string());
-            }
             return;
         }
         if p.ask == Ask::Overwrite {
@@ -457,7 +411,7 @@ impl App {
                     Ask::Palette | Ask::History | Ask::Presets => {
                         unreachable!("the palette has its own keys")
                     }
-                    Ask::Overwrite | Ask::Confirm(_) => unreachable!("handled above"),
+                    Ask::Overwrite => unreachable!("handled above"),
                 }
             }
             _ => {}
@@ -482,27 +436,6 @@ impl App {
                 "doctor: check the tools, out/ and the builds",
                 "",
                 Act::Doctor,
-            ),
-            e("check.sh build: build every pair", "", Act::Task("build")),
-            e(
-                "check.sh diff: compare the output with the golden output",
-                "",
-                Act::Task("diff"),
-            ),
-            e(
-                "check.sh save: write over the golden output",
-                "",
-                Act::Task("save"),
-            ),
-            e(
-                "check.sh wasm: compare the wasm files with the golden hashes",
-                "",
-                Act::Task("wasm"),
-            ),
-            e(
-                "check.sh time: time a run of every report on every pair",
-                "",
-                Act::Task("time"),
             ),
             e("save the command as a preset", "", Act::SavePreset),
             e("load a preset", "", Act::Presets),
@@ -622,14 +555,6 @@ impl App {
             }
             Act::Quit => self.quit = true,
             Act::History => self.ask(Ask::History),
-            Act::Task("save") => {
-                self.prompt = Some(Prompt {
-                    ask: Ask::Confirm(Act::SaveGolden),
-                    text: "check.sh save writes over the golden output".to_string(),
-                })
-            }
-            Act::SaveGolden => self.task("save"),
-            Act::Task(t) => self.task(t),
             Act::Doctor => {
                 // Read the pairs first, so a build made outside the UI is seen.
                 self.reload();
@@ -1258,49 +1183,6 @@ mod tests {
         assert!(app.palette_hits()[0].label.starts_with("cost of numeric"));
         enter(&mut app);
         assert_eq!(app.line, "--compare numeric --report cost ");
-    }
-
-    #[test]
-    fn tasks() {
-        let d = super::super::catalog::tests::scratch("tasks");
-        std::fs::create_dir_all(d.join("scripts")).unwrap();
-        script(&d.join("scripts/check.sh"), "#!/bin/sh\necho task $1\n");
-        let mut app = App {
-            root: d.clone(),
-            ..App::default()
-        };
-        let finish = |app: &mut App| {
-            let stop = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while app.running() && std::time::Instant::now() < stop {
-                app.tick();
-            }
-            app.tick();
-        };
-        let palette = |app: &mut App, text: &str| {
-            ctrl(app, 'p');
-            keys(app, text);
-            enter(app);
-        };
-
-        palette(&mut app, "check.sh diff");
-        finish(&mut app);
-        assert_eq!(app.tabs[0].run.lines[0].text, "task diff");
-        assert_eq!(app.tabs[0].title(), "scripts/check.sh diff");
-        assert_eq!(app.tabs[0].kind, Kind::Task);
-        // A task does not go into the history.
-        assert!(app.history.is_empty());
-
-        // `save` asks first; any key but `y` does nothing.
-        palette(&mut app, "check.sh save");
-        keys(&mut app, "n");
-        assert_eq!(app.tabs.len(), 1);
-        palette(&mut app, "check.sh save");
-        keys(&mut app, "y");
-        finish(&mut app);
-        assert_eq!(app.tabs[1].run.lines[0].text, "task save");
-
-        palette(&mut app, "check.sh build");
-        assert_eq!(app.tabs[2].kind, Kind::Build);
     }
 
     #[test]
