@@ -5,7 +5,7 @@ antlion is a differential testing tool for
 
 You give it the same contract written twice, once in Rust with `soroban-sdk` and once in
 Solidity. It builds both to Soroban WebAssembly and shows where the two differ: size,
-return values, storage and runtime cost.
+return values, errors, events, storage, rent and runtime cost.
 
 ## Requirements
 
@@ -38,7 +38,7 @@ the repository with `cargo run --`.
 
 ## Quick start
 
-The repository comes with 17 contract pairs in `contracts/`. Build one:
+The repository comes with 22 contract pairs in `contracts/`. Build one:
 
 ```
 antlion --build contracts/scalar_id
@@ -67,6 +67,12 @@ To see every report and option:
 
 ```
 antlion --help
+```
+
+To type a command with the next words suggested as you type, and run it in a terminal UI:
+
+```
+antlion --interactive
 ```
 
 Run `antlion --version` to check which version you have.
@@ -119,8 +125,8 @@ lto = true
 
 - [User manual](user_manual.md): every report and option in detail
 - `antlion --help`: a quick reference in the terminal
-- [Report](report.md): what antlion found comparing Solang with the Rust SDK, with
-  recommendations
+- [Report](report.md): what antlion found comparing Solang with the Rust SDK, 24 findings
+  with recommendations
 
 ## License
 
