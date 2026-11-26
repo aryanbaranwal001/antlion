@@ -158,6 +158,7 @@ that has the focus.
 | `Ctrl+Home`, `Ctrl+End` | Start, end of the panel; in the output, `Ctrl+End` follows new output |
 | `Shift+Left`, `Shift+Right` | Scroll the output to the side |
 | `Ctrl+W`, `Ctrl+U` | Delete the word before the cursor, or all text before it |
+| `Alt+Up`, `Alt+Down` | Older run, newer run from the history |
 | `Ctrl+PgUp`, `Ctrl+PgDn` | Tab before, next tab |
 | `Ctrl+S` | Save the output of the tab to a file |
 | `Ctrl+Y` | Copy the command |
@@ -167,8 +168,11 @@ that has the focus.
 | `Ctrl+Q` | Quit at once, and stop the run |
 | `Esc` | Close a box or a prompt |
 
-**The history.** The palette entry "history of runs" lists your last runs. Type part of one
-and press `Enter`, and it goes into the command line, ready to change or to run.
+**The history.** `Alt+Up` puts your last run into the command line, and each more `Alt+Up`
+an older one. `Alt+Down` goes back to newer runs, and past the newest it puts back the text
+you had typed. Once you edit the line, the next `Alt+Up` starts again from the newest run.
+To search all of them, the palette entry "history of runs" lists your last runs. Type part
+of one and press `Enter`, and it goes into the command line, ready to change or to run.
 
 **The palette.** `Ctrl+P` opens a box with every action. Type part of a name and press
 `Enter`. Some actions are only in the palette:
